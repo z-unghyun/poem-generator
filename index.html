@@ -12,8 +12,8 @@
       --muted: #75695f;
       --line: rgba(47, 41, 36, 0.14);
       --accent: #3a322c;
-      --shadow: 0 18px 48px rgba(47, 41, 36, 0.1);
-      --radius: 22px;
+      --shadow: 0 14px 36px rgba(47, 41, 36, 0.09);
+      --radius: 18px;
     }
 
     * { box-sizing: border-box; }
@@ -24,22 +24,22 @@
       font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(229, 214, 198, 0.9), transparent 28rem),
-        radial-gradient(circle at bottom right, rgba(58, 50, 44, 0.12), transparent 24rem),
+        radial-gradient(circle at top left, rgba(229, 214, 198, 0.8), transparent 24rem),
+        radial-gradient(circle at bottom right, rgba(58, 50, 44, 0.1), transparent 22rem),
         var(--bg);
-      line-height: 1.42;
+      line-height: 1.32;
     }
 
     main {
-      width: min(1160px, calc(100% - 28px));
+      width: min(1180px, calc(100% - 24px));
       margin: 0 auto;
-      padding: 22px 0;
+      padding: 12px 0;
     }
 
     .hero {
       display: grid;
-      grid-template-columns: 0.96fr 1.04fr;
-      gap: 18px;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 14px;
       align-items: stretch;
     }
 
@@ -52,78 +52,75 @@
     }
 
     .intro {
-      padding: 30px;
+      padding: 22px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      min-height: calc(100vh - 44px);
+      min-height: calc(100vh - 24px);
     }
 
     .eyebrow {
       display: inline-flex;
       width: fit-content;
-      padding: 6px 10px;
+      padding: 5px 9px;
       border: 1px solid var(--line);
       border-radius: 999px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       background: rgba(255, 255, 255, 0.38);
     }
 
     h1 {
-      margin: 20px 0 6px;
-      font-size: clamp(48px, 6.6vw, 86px);
-      line-height: 0.9;
+      margin: 14px 0 4px;
+      font-size: clamp(42px, 5.6vw, 74px);
+      line-height: 0.86;
       letter-spacing: -0.08em;
     }
 
     .subtitle {
       margin: 0;
-      font-size: clamp(16px, 2vw, 22px);
+      font-size: clamp(14px, 1.65vw, 18px);
       font-weight: 800;
       letter-spacing: -0.04em;
     }
 
     .description {
       max-width: 680px;
-      margin: 16px 0 0;
+      margin: 12px 0 0;
       color: var(--muted);
-      font-size: 14px;
+      font-size: 12px;
+      line-height: 1.45;
       word-break: keep-all;
     }
 
     .mode-box {
-      margin-top: 18px;
-      padding: 12px;
+      margin-top: 14px;
+      padding: 10px;
       border: 1px solid var(--line);
-      border-radius: 18px;
+      border-radius: 15px;
       background: rgba(255, 255, 255, 0.36);
     }
 
     .mode-label {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 800;
+      display: none;
     }
 
     .mode-toggle {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      padding: 5px;
-      border-radius: 15px;
+      gap: 5px;
+      padding: 4px;
+      border-radius: 13px;
       background: rgba(58, 50, 44, 0.08);
     }
 
     .mode-button {
-      padding: 10px 8px;
-      border-radius: 12px;
+      padding: 8px 7px;
+      border-radius: 10px;
       color: var(--muted);
       background: transparent;
       box-shadow: none;
-      font-size: 13px;
+      font-size: 12px;
     }
 
     .mode-button:hover { transform: none; }
@@ -131,100 +128,102 @@
     .mode-button.active {
       color: #fffaf3;
       background: var(--accent);
-      box-shadow: 0 8px 18px rgba(58, 50, 44, 0.16);
+      box-shadow: 0 7px 14px rgba(58, 50, 44, 0.14);
     }
 
     .mode-description {
-      margin: 9px 2px 0;
+      margin: 7px 2px 0;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
+      line-height: 1.35;
       word-break: keep-all;
     }
 
     .concept-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-      margin-top: 22px;
+      gap: 6px;
+      margin-top: 14px;
     }
 
     .concept {
-      padding: 12px;
-      border-radius: 16px;
+      padding: 8px 9px;
+      border-radius: 13px;
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.36);
     }
 
     .concept strong {
       display: block;
-      font-size: 13px;
-      margin-bottom: 5px;
+      font-size: 11px;
+      margin-bottom: 3px;
     }
 
     .concept span {
       display: block;
       color: var(--muted);
-      font-size: 11px;
-      line-height: 1.35;
+      font-size: 10px;
+      line-height: 1.25;
     }
 
     .generator {
-      padding: 22px;
-      min-height: calc(100vh - 44px);
+      padding: 16px;
+      min-height: calc(100vh - 24px);
     }
 
-    .field { margin-bottom: 14px; }
+    .field { margin-bottom: 9px; }
 
     label {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      gap: 10px;
-      margin-bottom: 7px;
-      font-size: 14px;
+      gap: 8px;
+      margin-bottom: 5px;
+      font-size: 12px;
       font-weight: 800;
       letter-spacing: -0.03em;
     }
 
     .hint {
       display: block;
-      margin-top: 5px;
+      margin-top: 3px;
       color: var(--muted);
-      font-size: 11px;
-      line-height: 1.35;
+      font-size: 10px;
+      line-height: 1.25;
     }
 
     textarea {
       width: 100%;
-      min-height: 112px;
+      min-height: 78px;
+      max-height: 92px;
       resize: vertical;
-      padding: 13px;
+      padding: 10px;
       border: 1px solid var(--line);
-      border-radius: 17px;
+      border-radius: 14px;
       background: rgba(255, 255, 255, 0.64);
       color: var(--ink);
       font: inherit;
-      font-size: 13px;
+      font-size: 12px;
       outline: none;
       transition: border 160ms ease, box-shadow 160ms ease, background 160ms ease;
     }
 
     textarea:focus {
       border-color: rgba(58, 50, 44, 0.45);
-      box-shadow: 0 0 0 4px rgba(58, 50, 44, 0.08);
+      box-shadow: 0 0 0 3px rgba(58, 50, 44, 0.08);
       background: rgba(255, 255, 255, 0.86);
     }
 
     .slider-card {
-      padding: 12px;
+      padding: 8px 10px 7px;
       border: 1px solid var(--line);
-      border-radius: 17px;
+      border-radius: 14px;
       background: rgba(255, 255, 255, 0.42);
-      margin-bottom: 9px;
+      margin-bottom: 6px;
     }
 
     .value {
-      min-width: 36px;
+      min-width: 32px;
       text-align: right;
       color: var(--accent);
       font-variant-numeric: tabular-nums;
@@ -232,22 +231,23 @@
 
     input[type="range"] {
       width: 100%;
+      height: 14px;
       accent-color: var(--accent);
       cursor: pointer;
     }
 
     .actions {
       display: flex;
-      gap: 9px;
-      margin-top: 14px;
+      gap: 8px;
+      margin-top: 9px;
     }
 
     button {
       border: 0;
-      border-radius: 15px;
-      padding: 12px 15px;
+      border-radius: 13px;
+      padding: 10px 13px;
       font: inherit;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 800;
       cursor: pointer;
       transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
@@ -259,7 +259,7 @@
       flex: 1;
       color: #fffaf3;
       background: var(--accent);
-      box-shadow: 0 10px 22px rgba(58, 50, 44, 0.18);
+      box-shadow: 0 8px 18px rgba(58, 50, 44, 0.16);
     }
 
     .ghost {
@@ -268,42 +268,61 @@
     }
 
     .output {
-      margin-top: 14px;
-      padding: 16px;
-      min-height: 150px;
-      max-height: 250px;
+      margin-top: 9px;
+      padding: 12px;
+      min-height: 118px;
+      max-height: 198px;
       overflow: auto;
-      border-radius: 18px;
+      border-radius: 15px;
       border: 1px solid var(--line);
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.35));
       white-space: pre-wrap;
       font-family: "Iropke Batang", "Noto Serif KR", serif;
-      font-size: 15px;
-      line-height: 1.55;
+      font-size: 13px;
+      line-height: 1.45;
       letter-spacing: -0.02em;
     }
 
     .output.empty {
       color: var(--muted);
       font-family: inherit;
-      font-size: 13px;
+      font-size: 12px;
     }
 
     .meta {
       display: flex;
       justify-content: space-between;
-      gap: 10px;
-      margin-top: 10px;
+      gap: 8px;
+      margin-top: 7px;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 10px;
+    }
+
+    @media (max-height: 760px) and (min-width: 881px) {
+      main { padding: 8px 0; }
+      .intro, .generator { min-height: calc(100vh - 16px); }
+      .intro { padding: 18px; }
+      .generator { padding: 14px; }
+      h1 { font-size: clamp(38px, 5vw, 64px); margin-top: 10px; }
+      .description { font-size: 11px; margin-top: 9px; }
+      .mode-box { margin-top: 10px; padding: 8px; }
+      .concept-grid { margin-top: 10px; }
+      .concept span { display: none; }
+      textarea { min-height: 64px; max-height: 78px; }
+      .slider-card { padding: 7px 9px 6px; margin-bottom: 5px; }
+      .hint { display: none; }
+      .output { min-height: 104px; max-height: 170px; }
     }
 
     @media (max-width: 880px) {
-      main { padding: 18px 0; }
+      main { padding: 16px 0; }
       .hero { grid-template-columns: 1fr; }
-      .intro, .generator { min-height: auto; padding: 24px; }
-      .concept-grid { grid-template-columns: 1fr; margin-top: 18px; }
-      h1 { font-size: clamp(48px, 16vw, 78px); }
+      .intro, .generator { min-height: auto; padding: 22px; }
+      .concept-grid { grid-template-columns: 1fr; margin-top: 14px; }
+      .concept span { display: block; }
+      h1 { font-size: clamp(46px, 16vw, 74px); }
+      textarea { min-height: 100px; max-height: none; }
+      .output { max-height: none; }
     }
   </style>
 </head>
@@ -316,7 +335,7 @@
           <h1>시 생성기</h1>
           <p class="subtitle">글로벌문화1: AI시대의 시와 스토리텔링</p>
           <p class="description">
-            시가 일상언어를 공격해 경험 기반의 언어적 도약을 만든다면, LLM은 방대한 데이터의 확률분포에서 다음 단어를 고른다. 이 생성기는 동일한 Hugging Face 오픈소스 모델을 두 방식으로 작동시켜 평균적인 언어를 벗어나는 시를 실험한다.
+            시가 일상언어를 공격해 경험 기반의 언어적 도약을 만든다면, LLM은 확률분포에서 다음 단어를 고른다. 이 생성기는 동일한 Hugging Face 오픈소스 모델을 두 방식으로 작동시켜 평균적인 언어를 벗어나는 시를 실험한다.
           </p>
 
           <section class="mode-box" aria-label="생성 모드 선택">
@@ -338,7 +357,7 @@
           </div>
           <div class="concept">
             <strong>언어 도약도</strong>
-            <span>고확률 단어를 피하고 낯선 후보를 선택하는 정도</span>
+            <span>고확률 단어를 피하고 낯선 후보를 선택</span>
           </div>
           <div class="concept">
             <strong>다다 강도</strong>
@@ -351,20 +370,20 @@
         <form id="poemForm">
           <div class="field">
             <label for="experience">경험 프롬프트 입력</label>
-            <textarea id="experience" name="experience" placeholder="예: 야자 끝나고 비 오는 정류장에서 혼자 버스를 기다렸던 기억을 적어주세요."></textarea>
+            <textarea id="experience" name="experience" placeholder="예: 야자 끝나고 비 오는 정류장에서 혼자 버스를 기다렸던 기억"></textarea>
             <span class="hint">구체적인 장소, 감각, 감정이 들어갈수록 결과가 좋아집니다.</span>
           </div>
 
           <div class="slider-card">
             <label for="experienceDensity">경험 밀도 <span class="value"><span id="experienceDensityValue">80</span></span></label>
             <input id="experienceDensity" name="experienceDensity" type="range" min="0" max="100" value="80" />
-            <span class="hint">프롬프트 모드: 경험 반영 지시 / 실험 모드: 경험어 logit boost</span>
+            <span class="hint">프롬프트: 경험 반영 지시 / 실험: 경험어 logit boost</span>
           </div>
 
           <div class="slider-card">
             <label for="languageJump">언어 도약도 <span class="value"><span id="languageJumpValue">65</span></span></label>
             <input id="languageJump" name="languageJump" type="range" min="0" max="100" value="65" />
-            <span class="hint">프롬프트 모드: 낯선 은유 지시 / 실험 모드: 상위 확률 후보 회피</span>
+            <span class="hint">프롬프트: 낯선 은유 지시 / 실험: 상위 확률 후보 회피</span>
           </div>
 
           <div class="slider-card">
