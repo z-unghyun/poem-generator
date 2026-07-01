@@ -12,14 +12,11 @@
       --muted: #75695f;
       --line: rgba(47, 41, 36, 0.14);
       --accent: #3a322c;
-      --accent-soft: #e5d6c6;
-      --shadow: 0 24px 70px rgba(47, 41, 36, 0.12);
-      --radius: 28px;
+      --shadow: 0 18px 48px rgba(47, 41, 36, 0.1);
+      --radius: 22px;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -27,22 +24,22 @@
       font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(229, 214, 198, 0.9), transparent 32rem),
-        radial-gradient(circle at bottom right, rgba(58, 50, 44, 0.14), transparent 28rem),
+        radial-gradient(circle at top left, rgba(229, 214, 198, 0.9), transparent 28rem),
+        radial-gradient(circle at bottom right, rgba(58, 50, 44, 0.12), transparent 24rem),
         var(--bg);
-      line-height: 1.55;
+      line-height: 1.42;
     }
 
     main {
-      width: min(1120px, calc(100% - 32px));
+      width: min(1160px, calc(100% - 28px));
       margin: 0 auto;
-      padding: 56px 0;
+      padding: 22px 0;
     }
 
     .hero {
       display: grid;
-      grid-template-columns: 1.05fr 0.95fr;
-      gap: 28px;
+      grid-template-columns: 0.96fr 1.04fr;
+      gap: 18px;
       align-items: stretch;
     }
 
@@ -55,162 +52,159 @@
     }
 
     .intro {
-      padding: 48px;
+      padding: 30px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      min-height: 660px;
+      min-height: calc(100vh - 44px);
     }
 
     .eyebrow {
       display: inline-flex;
       width: fit-content;
-      gap: 8px;
-      align-items: center;
-      padding: 8px 12px;
+      padding: 6px 10px;
       border: 1px solid var(--line);
       border-radius: 999px;
       color: var(--muted);
-      font-size: 13px;
-      letter-spacing: -0.01em;
+      font-size: 12px;
       background: rgba(255, 255, 255, 0.38);
     }
 
     h1 {
-      margin: 28px 0 8px;
-      font-size: clamp(52px, 9vw, 108px);
+      margin: 20px 0 6px;
+      font-size: clamp(48px, 6.6vw, 86px);
       line-height: 0.9;
       letter-spacing: -0.08em;
     }
 
     .subtitle {
       margin: 0;
-      font-size: clamp(18px, 2.5vw, 26px);
-      font-weight: 700;
+      font-size: clamp(16px, 2vw, 22px);
+      font-weight: 800;
       letter-spacing: -0.04em;
     }
 
     .description {
       max-width: 680px;
-      margin: 24px 0 0;
+      margin: 16px 0 0;
       color: var(--muted);
-      font-size: 17px;
+      font-size: 14px;
       word-break: keep-all;
     }
 
     .mode-box {
-      margin-top: 28px;
-      padding: 16px;
+      margin-top: 18px;
+      padding: 12px;
       border: 1px solid var(--line);
-      border-radius: 22px;
+      border-radius: 18px;
       background: rgba(255, 255, 255, 0.36);
     }
 
     .mode-label {
       display: block;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 800;
-      letter-spacing: -0.02em;
     }
 
     .mode-toggle {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      padding: 6px;
-      border-radius: 18px;
+      gap: 6px;
+      padding: 5px;
+      border-radius: 15px;
       background: rgba(58, 50, 44, 0.08);
     }
 
     .mode-button {
-      padding: 12px 10px;
-      border-radius: 14px;
+      padding: 10px 8px;
+      border-radius: 12px;
       color: var(--muted);
       background: transparent;
       box-shadow: none;
-      font-size: 14px;
+      font-size: 13px;
     }
 
-    .mode-button:hover {
-      transform: none;
-    }
+    .mode-button:hover { transform: none; }
 
     .mode-button.active {
       color: #fffaf3;
       background: var(--accent);
-      box-shadow: 0 10px 22px rgba(58, 50, 44, 0.18);
+      box-shadow: 0 8px 18px rgba(58, 50, 44, 0.16);
     }
 
     .mode-description {
-      margin: 12px 2px 0;
+      margin: 9px 2px 0;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
       word-break: keep-all;
     }
 
     .concept-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      margin-top: 44px;
+      gap: 8px;
+      margin-top: 22px;
     }
 
     .concept {
-      padding: 16px;
-      border-radius: 20px;
+      padding: 12px;
+      border-radius: 16px;
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.36);
     }
 
     .concept strong {
       display: block;
-      font-size: 14px;
-      margin-bottom: 8px;
+      font-size: 13px;
+      margin-bottom: 5px;
     }
 
     .concept span {
       display: block;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 11px;
+      line-height: 1.35;
     }
 
     .generator {
-      padding: 28px;
+      padding: 22px;
+      min-height: calc(100vh - 44px);
     }
 
-    .field {
-      margin-bottom: 22px;
-    }
+    .field { margin-bottom: 14px; }
 
     label {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      gap: 12px;
-      margin-bottom: 10px;
+      gap: 10px;
+      margin-bottom: 7px;
+      font-size: 14px;
       font-weight: 800;
       letter-spacing: -0.03em;
     }
 
     .hint {
       display: block;
-      margin-top: 7px;
+      margin-top: 5px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 11px;
+      line-height: 1.35;
     }
 
     textarea {
       width: 100%;
-      min-height: 180px;
+      min-height: 112px;
       resize: vertical;
-      padding: 18px;
+      padding: 13px;
       border: 1px solid var(--line);
-      border-radius: 22px;
+      border-radius: 17px;
       background: rgba(255, 255, 255, 0.64);
       color: var(--ink);
       font: inherit;
+      font-size: 13px;
       outline: none;
       transition: border 160ms ease, box-shadow 160ms ease, background 160ms ease;
     }
@@ -222,15 +216,15 @@
     }
 
     .slider-card {
-      padding: 18px;
+      padding: 12px;
       border: 1px solid var(--line);
-      border-radius: 22px;
+      border-radius: 17px;
       background: rgba(255, 255, 255, 0.42);
-      margin-bottom: 12px;
+      margin-bottom: 9px;
     }
 
     .value {
-      min-width: 42px;
+      min-width: 36px;
       text-align: right;
       color: var(--accent);
       font-variant-numeric: tabular-nums;
@@ -244,29 +238,28 @@
 
     .actions {
       display: flex;
-      gap: 12px;
-      margin-top: 24px;
+      gap: 9px;
+      margin-top: 14px;
     }
 
     button {
       border: 0;
-      border-radius: 18px;
-      padding: 16px 20px;
+      border-radius: 15px;
+      padding: 12px 15px;
       font: inherit;
+      font-size: 13px;
       font-weight: 800;
       cursor: pointer;
       transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
     }
 
-    button:hover {
-      transform: translateY(-1px);
-    }
+    button:hover { transform: translateY(-1px); }
 
     .primary {
       flex: 1;
       color: #fffaf3;
       background: var(--accent);
-      box-shadow: 0 14px 28px rgba(58, 50, 44, 0.22);
+      box-shadow: 0 10px 22px rgba(58, 50, 44, 0.18);
     }
 
     .ghost {
@@ -275,52 +268,42 @@
     }
 
     .output {
-      margin-top: 22px;
-      padding: 22px;
-      min-height: 220px;
-      border-radius: 24px;
+      margin-top: 14px;
+      padding: 16px;
+      min-height: 150px;
+      max-height: 250px;
+      overflow: auto;
+      border-radius: 18px;
       border: 1px solid var(--line);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.35));
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.35));
       white-space: pre-wrap;
       font-family: "Iropke Batang", "Noto Serif KR", serif;
-      font-size: 18px;
+      font-size: 15px;
+      line-height: 1.55;
       letter-spacing: -0.02em;
     }
 
     .output.empty {
       color: var(--muted);
       font-family: inherit;
-      font-size: 15px;
+      font-size: 13px;
     }
 
     .meta {
       display: flex;
       justify-content: space-between;
-      gap: 12px;
-      margin-top: 14px;
+      gap: 10px;
+      margin-top: 10px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
     }
 
     @media (max-width: 880px) {
-      main {
-        padding: 28px 0;
-      }
-
-      .hero {
-        grid-template-columns: 1fr;
-      }
-
-      .intro {
-        min-height: auto;
-        padding: 32px;
-      }
-
-      .concept-grid {
-        grid-template-columns: 1fr;
-        margin-top: 28px;
-      }
+      main { padding: 18px 0; }
+      .hero { grid-template-columns: 1fr; }
+      .intro, .generator { min-height: auto; padding: 24px; }
+      .concept-grid { grid-template-columns: 1fr; margin-top: 18px; }
+      h1 { font-size: clamp(48px, 16vw, 78px); }
     }
   </style>
 </head>
@@ -333,7 +316,7 @@
           <h1>시 생성기</h1>
           <p class="subtitle">글로벌문화1: AI시대의 시와 스토리텔링</p>
           <p class="description">
-            시가 일상언어를 공격해 경험 기반의 언어적 도약을 만든다면, LLM은 방대한 데이터의 확률분포에서 다음 단어를 고른다. 이 생성기는 경험 프롬프트, 로짓 부스트, 디코딩 조작을 통해 평균적인 언어를 벗어나는 시를 실험한다.
+            시가 일상언어를 공격해 경험 기반의 언어적 도약을 만든다면, LLM은 방대한 데이터의 확률분포에서 다음 단어를 고른다. 이 생성기는 동일한 Hugging Face 오픈소스 모델을 두 방식으로 작동시켜 평균적인 언어를 벗어나는 시를 실험한다.
           </p>
 
           <section class="mode-box" aria-label="생성 모드 선택">
@@ -343,7 +326,7 @@
               <button class="mode-button" type="button" data-mode="experiment">확률 실험 모드</button>
             </div>
             <p class="mode-description" id="modeDescription">
-              슬라이더 값을 모델 지시문으로 변환해 시적 문체를 유도합니다. 안정적이고 발표 시연에 적합한 생성 방식입니다.
+              슬라이더 값을 자연어 지시문으로 변환해 같은 모델에 전달합니다. 안정적이고 빠른 생성 방식입니다.
             </p>
           </section>
         </div>
@@ -351,7 +334,7 @@
         <div class="concept-grid" aria-label="생성 원리 요약">
           <div class="concept">
             <strong>경험 밀도</strong>
-            <span>프롬프트의 기억·감각·정서를 얼마나 강하게 반영할지 조절</span>
+            <span>경험어를 얼마나 강하게 반영할지 조절</span>
           </div>
           <div class="concept">
             <strong>언어 도약도</strong>
@@ -359,7 +342,7 @@
           </div>
           <div class="concept">
             <strong>다다 강도</strong>
-            <span>반복, 절단, 비문, 우연적 조합을 허용하는 정도</span>
+            <span>반복, 절단, 비문, 우연적 조합의 정도</span>
           </div>
         </div>
       </header>
@@ -373,28 +356,19 @@
           </div>
 
           <div class="slider-card">
-            <label for="experienceDensity">
-              경험 밀도
-              <span class="value"><span id="experienceDensityValue">80</span></span>
-            </label>
+            <label for="experienceDensity">경험 밀도 <span class="value"><span id="experienceDensityValue">80</span></span></label>
             <input id="experienceDensity" name="experienceDensity" type="range" min="0" max="100" value="80" />
-            <span class="hint">입력 경험에서 추출한 핵심어의 logit boost 강도</span>
+            <span class="hint">프롬프트 모드: 경험 반영 지시 / 실험 모드: 경험어 logit boost</span>
           </div>
 
           <div class="slider-card">
-            <label for="languageJump">
-              언어 도약도
-              <span class="value"><span id="languageJumpValue">65</span></span>
-            </label>
+            <label for="languageJump">언어 도약도 <span class="value"><span id="languageJumpValue">65</span></span></label>
             <input id="languageJump" name="languageJump" type="range" min="0" max="100" value="65" />
-            <span class="hint">상위 확률 후보를 회피하고 중간/낮은 순위 후보를 선택하는 정도</span>
+            <span class="hint">프롬프트 모드: 낯선 은유 지시 / 실험 모드: 상위 확률 후보 회피</span>
           </div>
 
           <div class="slider-card">
-            <label for="dadaIntensity">
-              다다 강도
-              <span class="value"><span id="dadaIntensityValue">40</span></span>
-            </label>
+            <label for="dadaIntensity">다다 강도 <span class="value"><span id="dadaIntensityValue">40</span></span></label>
             <input id="dadaIntensity" name="dadaIntensity" type="range" min="0" max="100" value="40" />
             <span class="hint">반복, 절단, 비문, 무작위 재배열을 허용하는 정도</span>
           </div>
@@ -406,7 +380,7 @@
         </form>
 
         <article id="output" class="output empty" aria-live="polite">
-          생성 버튼을 누르면 이곳에 시가 나타납니다. Vercel 환경변수와 OpenRouter API가 연결되면 실제 모델 생성이 실행됩니다.
+          생성 버튼을 누르면 이곳에 시가 나타납니다. Hugging Face backend가 연결되면 실제 모델 생성이 실행됩니다.
         </article>
         <div class="meta">
           <span id="modeMeta">현재 모드: 프롬프트 모드</span>
@@ -432,11 +406,11 @@
     const modeCopy = {
       prompt: {
         label: "프롬프트 모드",
-        description: "슬라이더 값을 모델 지시문으로 변환해 시적 문체를 유도합니다. 안정적이고 발표 시연에 적합한 생성 방식입니다."
+        description: "슬라이더 값을 자연어 지시문으로 변환해 같은 모델에 전달합니다. 안정적이고 빠른 생성 방식입니다."
       },
       experiment: {
         label: "확률 실험 모드",
-        description: "슬라이더 값을 temperature, top_p, 후처리 규칙에 연결해 평균적 언어에서 벗어나는 정도를 실험합니다."
+        description: "같은 모델의 logits와 decoding 과정을 직접 조작해 평균적 단어 선택을 교란합니다. 프롬프트 모드보다 느릴 수 있습니다."
       }
     };
 
@@ -521,7 +495,7 @@
       };
 
       output.classList.remove("empty");
-      output.textContent = "생성 중...";
+      output.textContent = currentMode === "experiment" ? "확률분포 조작 중..." : "생성 중...";
       statusEl.textContent = "generating";
 
       try {
@@ -540,7 +514,7 @@
         document.getElementById(valueId).textContent = document.getElementById(inputId).value;
       });
       output.classList.add("empty");
-      output.textContent = "생성 버튼을 누르면 이곳에 시가 나타납니다. Vercel 환경변수와 OpenRouter API가 연결되면 실제 모델 생성이 실행됩니다.";
+      output.textContent = "생성 버튼을 누르면 이곳에 시가 나타납니다. Hugging Face backend가 연결되면 실제 모델 생성이 실행됩니다.";
       statusEl.textContent = "ready";
     });
   </script>
