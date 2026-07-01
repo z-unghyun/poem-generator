@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>시 생성기 | AI시대의 시와 스토리텔링</title>
+  <style>
+    :root {
+      --bg: #f6f1ea;
+      --paper: rgba(255, 252, 246, 0.88);
+      --ink: #2f2924;
+      --muted: #75695f;
+      --line: rgba(47, 41, 36, 0.14);
+      --accent: #3a322c;
+      --accent-soft: #e5d6c6;
+      --shadow: 0 24px 70px rgba(47, 41, 36, 0.12);
+      --radius: 28px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(229, 214, 198, 0.9), transparent 32rem),
+        radial-gradient(circle at bottom right, rgba(58, 50, 44, 0.14), transparent 28rem),
+        var(--bg);
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 56px 0;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 28px;
+      align-items: stretch;
+    }
+
+    .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .intro {
+      padding: 48px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 620px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      width: fit-content;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: -0.01em;
+      background: rgba(255, 255, 255, 0.38);
+    }
+
+    h1 {
+      margin: 28px 0 8px;
+      font-size: clamp(52px, 9vw, 108px);
+      line-height: 0.9;
+      letter-spacing: -0.08em;
+    }
+
+    .subtitle {
+      margin: 0;
+      font-size: clamp(18px, 2.5vw, 26px);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+
+    .description {
+      max-width: 680px;
+      margin: 24px 0 0;
+      color: var(--muted);
+      font-size: 17px;
+      word-break: keep-all;
+    }
+
+    .concept-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 44px;
+    }
+
+    .concept {
+      padding: 16px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.36);
+    }
+
+    .concept strong {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .concept span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .generator {
+      padding: 28px;
+    }
+
+    .field {
+      margin-bottom: 22px;
+    }
+
+    label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 10px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .hint {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.64);
+      color: var(--ink);
+      font: inherit;
+      outline: none;
+      transition: border 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    }
+
+    textarea:focus {
+      border-color: rgba(58, 50, 44, 0.45);
+      box-shadow: 0 0 0 4px rgba(58, 50, 44, 0.08);
+      background: rgba(255, 255, 255, 0.86);
+    }
+
+    .slider-card {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.42);
+      margin-bottom: 12px;
+    }
+
+    .value {
+      min-width: 42px;
+      text-align: right;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 18px;
+      padding: 16px 20px;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    .primary {
+      flex: 1;
+      color: #fffaf3;
+      background: var(--accent);
+      box-shadow: 0 14px 28px rgba(58, 50, 44, 0.22);
+    }
+
+    .ghost {
+      color: var(--accent);
+      background: rgba(58, 50, 44, 0.08);
+    }
+
+    .output {
+      margin-top: 22px;
+      padding: 22px;
+      min-height: 220px;
+      border-radius: 24px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.35));
+      white-space: pre-wrap;
+      font-family: "Iropke Batang", "Noto Serif KR", serif;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    .output.empty {
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 15px;
+    }
+
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 880px) {
+      main {
+        padding: 28px 0;
+      }
+
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .intro {
+        min-height: auto;
+        padding: 32px;
+      }
+
+      .concept-grid {
+        grid-template-columns: 1fr;
+        margin-top: 28px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <header class="intro panel">
+        <div>
+          <div class="eyebrow">확률 · 경험 · 언어적 도약</div>
+          <h1>시 생성기</h1>
+          <p class="subtitle">글로벌문화1: AI시대의 시와 스토리텔링</p>
+          <p class="description">
+            시가 일상언어를 공격해 경험 기반의 언어적 도약을 만든다면, LLM은 방대한 데이터의 확률분포에서 다음 단어를 고른다. 이 생성기는 경험 프롬프트, 로짓 부스트, 디코딩 조작을 통해 평균적인 언어를 벗어나는 시를 실험한다.
+          </p>
+        </div>
+
+        <div class="concept-grid" aria-label="생성 원리 요약">
+          <div class="concept">
+            <strong>경험 밀도</strong>
+            <span>프롬프트의 기억·감각·정서를 얼마나 강하게 반영할지 조절</span>
+          </div>
+          <div class="concept">
+            <strong>언어 도약도</strong>
+            <span>고확률 단어를 피하고 낯선 후보를 선택하는 정도</span>
+          </div>
+          <div class="concept">
+            <strong>다다 강도</strong>
+            <span>반복, 절단, 비문, 우연적 조합을 허용하는 정도</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="generator panel" aria-label="시 생성 폼">
+        <form id="poemForm">
+          <div class="field">
+            <label for="experience">경험 프롬프트 입력</label>
+            <textarea id="experience" name="experience" placeholder="예: 야자 끝나고 비 오는 정류장에서 혼자 버스를 기다렸던 기억을 적어주세요."></textarea>
+            <span class="hint">구체적인 장소, 감각, 감정이 들어갈수록 결과가 좋아집니다.</span>
+          </div>
+
+          <div class="slider-card">
+            <label for="experienceDensity">
+              경험 밀도
+              <span class="value"><span id="experienceDensityValue">80</span></span>
+            </label>
+            <input id="experienceDensity" name="experienceDensity" type="range" min="0" max="100" value="80" />
+            <span class="hint">입력 경험에서 추출한 핵심어의 logit boost 강도</span>
+          </div>
+
+          <div class="slider-card">
+            <label for="languageJump">
+              언어 도약도
+              <span class="value"><span id="languageJumpValue">65</span></span>
+            </label>
+            <input id="languageJump" name="languageJump" type="range" min="0" max="100" value="65" />
+            <span class="hint">상위 확률 후보를 회피하고 중간/낮은 순위 후보를 선택하는 정도</span>
+          </div>
+
+          <div class="slider-card">
+            <label for="dadaIntensity">
+              다다 강도
+              <span class="value"><span id="dadaIntensityValue">40</span></span>
+            </label>
+            <input id="dadaIntensity" name="dadaIntensity" type="range" min="0" max="100" value="40" />
+            <span class="hint">반복, 절단, 비문, 무작위 재배열을 허용하는 정도</span>
+          </div>
+
+          <div class="actions">
+            <button class="primary" type="submit">생성하기</button>
+            <button class="ghost" type="button" id="resetButton">초기화</button>
+          </div>
+        </form>
+
+        <article id="output" class="output empty" aria-live="polite">
+          생성 버튼을 누르면 이곳에 시가 나타납니다. 지금은 API 연결 전이므로 데모 생성 로직이 실행됩니다.
+        </article>
+        <div class="meta">
+          <span>초기 모델: 오픈소스 텍스트 생성 모델 API 연결 예정</span>
+          <span id="status">ready</span>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const API_ENDPOINT = ""; // TODO: 백엔드 또는 모델 API 엔드포인트를 여기에 연결하세요.
+
+    const form = document.querySelector("#poemForm");
+    const output = document.querySelector("#output");
+    const statusEl = document.querySelector("#status");
+    const resetButton = document.querySelector("#resetButton");
+
+    const sliders = [
+      ["experienceDensity", "experienceDensityValue"],
+      ["languageJump", "languageJumpValue"],
+      ["dadaIntensity", "dadaIntensityValue"]
+    ];
+
+    sliders.forEach(([inputId, valueId]) => {
+      const input = document.getElementById(inputId);
+      const value = document.getElementById(valueId);
+      input.addEventListener("input", () => {
+        value.textContent = input.value;
+      });
+    });
+
+    function pickWords(text) {
+      const fallback = ["정류장", "비", "유리", "기다림", "이름", "숨", "불빛", "주머니"];
+      const words = text
+        .replace(/[.,!?;:()\[\]{}"'“”‘’]/g, " ")
+        .split(/\s+/)
+        .filter((word) => word.length > 1);
+      return words.length ? words.slice(0, 10) : fallback;
+    }
+
+    function createDemoPoem({ experience, experienceDensity, languageJump, dadaIntensity }) {
+      const words = pickWords(experience);
+      const dadaMark = dadaIntensity > 70 ? " / " : " ";
+      const jumpImages = languageJump > 75
+        ? ["녹슨 달", "젖은 비밀번호", "유리의 혀", "버스의 내장", "검은 숟가락"]
+        : languageJump > 45
+          ? ["젖은 불빛", "접힌 이름", "늦은 창문", "주머니 속 체온", "기다림의 모서리"]
+          : ["조용한 밤", "따뜻한 기억", "희미한 불빛", "천천히 걷는 마음", "남아 있는 말"];
+
+      const densityLine = experienceDensity > 60
+        ? `${words[0]}${dadaMark}${words[1] || "기억"}${dadaMark}${jumpImages[0]}`
+        : `${jumpImages[0]}이 천천히 문장을 지난다`;
+
+      const fracture = dadaIntensity > 60
+        ? `\n${words.slice(0, 4).join(" / ")}\n없음이 다시 나를 부른다`
+        : "";
+
+      return `${densityLine}\n나는 ${jumpImages[1]}을 손에 쥐고\n${words[2] || "어제"}의 안쪽에서 ${jumpImages[2]}를 본다\n말은 가장 낮은 확률로 젖고\n${words[3] || "기억"}은 아직 도착하지 않는다${fracture}`;
+    }
+
+    async function generatePoem(payload) {
+      if (!API_ENDPOINT) {
+        return createDemoPoem(payload);
+      }
+
+      const response = await fetch(API_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error("API 요청에 실패했습니다.");
+      }
+
+      const data = await response.json();
+      return data.poem || data.text || "시를 생성하지 못했습니다.";
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const payload = {
+        experience: document.getElementById("experience").value.trim(),
+        experienceDensity: Number(document.getElementById("experienceDensity").value),
+        languageJump: Number(document.getElementById("languageJump").value),
+        dadaIntensity: Number(document.getElementById("dadaIntensity").value)
+      };
+
+      output.classList.remove("empty");
+      output.textContent = "생성 중...";
+      statusEl.textContent = "generating";
+
+      try {
+        const poem = await generatePoem(payload);
+        output.textContent = poem;
+        statusEl.textContent = "done";
+      } catch (error) {
+        output.classList.add("empty");
+        output.textContent = error.message;
+        statusEl.textContent = "error";
+      }
+    });
+
+    resetButton.addEventListener("click", () => {
+      form.reset();
+      sliders.forEach(([inputId, valueId]) => {
+        document.getElementById(valueId).textContent = document.getElementById(inputId).value;
+      });
+      output.classList.add("empty");
+      output.textContent = "생성 버튼을 누르면 이곳에 시가 나타납니다. 지금은 API 연결 전이므로 데모 생성 로직이 실행됩니다.";
+      statusEl.textContent = "ready";
+    });
+  </script>
+</body>
+</html>
