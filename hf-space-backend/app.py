@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Tuple
 
 import torch
 from fastapi import FastAPI
@@ -12,6 +12,7 @@ MODEL_ID = os.getenv("MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "120"))
 EXPERIMENT_MAX_NEW_TOKENS = int(os.getenv("EXPERIMENT_MAX_NEW_TOKENS", "80"))
 EXPERIMENT_TOPK = int(os.getenv("EXPERIMENT_TOPK", "220"))
+FAILURE_MESSAGE = "생성 실패: 모델 출력이 입력 경험과 무관하거나 시 형식을 유지하지 못했습니다. 슬라이더를 낮추고 다시 시도해주세요."
 
 app = FastAPI(title="Poem Generator Backend")
 app.add_middleware(
@@ -77,7 +78,6 @@ def clean_text(text: str) -> str:
     text = re.sub(r"^```.*?\n", "", text, flags=re.DOTALL)
     text = text.replace("```", "").strip()
 
-    # If the model starts continuing the prompt template, cut that leakage away.
     for marker in FORBIDDEN_MARKERS:
         if marker in text:
             text = text.split(marker)[0].strip()
@@ -98,19 +98,48 @@ def clean_text(text: str) -> str:
     return "\n".join(lines[:10])
 
 
+def normalize_keyword(word: str) -> List[str]:
+    word = word.strip()
+    if not word:
+        return []
+
+    candidates = [word]
+    suffixes = ["에서", "에게", "으로", "처럼", "까지", "부터", "하고", "이며", "이랑", "랑", "은", "는", "이", "가", "을", "를", "의", "에"]
+    for suffix in suffixes:
+        if word.endswith(suffix) and len(word) > len(suffix) + 1:
+            candidates.append(word[: -len(suffix)])
+
+    # Lightweight noun hints for common compound forms such as 비오는, 버스를, 정류장에서.
+    # These are only used for validation/boosting, not for templated poem generation.
+    for anchor in ["비", "버스", "정류장", "야자", "기다림", "가방", "밤", "가로등"]:
+        if anchor in word:
+            candidates.append(anchor)
+
+    seen = []
+    for item in candidates:
+        if len(item) > 0 and item not in seen:
+            seen.append(item)
+    return seen
+
+
 def extract_keywords(text: str, limit: int = 12) -> List[str]:
     fallback = ["비", "정류장", "버스", "기다림", "가방", "불빛"]
     words = re.sub(r"[.,!?;:()\[\]{}\"'“”‘’]", " ", text)
-    words = [word.strip() for word in words.split() if len(word.strip()) > 1]
+    raw_words = [word.strip() for word in words.split() if len(word.strip()) > 1]
+
     seen = []
-    for word in words:
-        if word not in seen:
-            seen.append(word)
+    for word in raw_words:
+        for candidate in normalize_keyword(word):
+            if candidate not in seen:
+                seen.append(candidate)
+
     return seen[:limit] or fallback
 
 
 def is_invalid_poem(poem: str, experience: str) -> bool:
     if not poem.strip():
+        return True
+    if poem.strip() == FAILURE_MESSAGE:
         return True
     if any(marker in poem for marker in FORBIDDEN_MARKERS):
         return True
@@ -121,45 +150,16 @@ def is_invalid_poem(poem: str, experience: str) -> bool:
     if len(lines) < 3:
         return True
 
-    # A single long prose paragraph is not useful for this interface.
     if len(lines) <= 2 and len(poem) > 140:
         return True
 
-    experience_keywords = set(extract_keywords(experience, limit=6))
+    if not experience.strip():
+        return False
+
+    experience_keywords = set(extract_keywords(experience, limit=8))
     poem_text = poem.replace(" ", "")
     matched = sum(1 for word in experience_keywords if word.replace(" ", "") in poem_text)
-    return matched == 0 and bool(experience.strip())
-
-
-def repair_poem_from_experience(req: GenerateRequest) -> str:
-    words = extract_keywords(req.experience, limit=6)
-    first = words[0] if len(words) > 0 else "비"
-    second = words[1] if len(words) > 1 else "정류장"
-    third = words[2] if len(words) > 2 else "버스"
-    fourth = words[3] if len(words) > 3 else "기다림"
-
-    if req.languageJump >= 70:
-        images = ["젖은 불빛", "유리의 숨", "늦은 바퀴", "접힌 이름"]
-    elif req.languageJump >= 40:
-        images = ["번지는 가로등", "차가운 손바닥", "흔들리는 창문", "젖은 신발"]
-    else:
-        images = ["비 오는 밤", "조용한 정류장", "늦은 버스", "작은 기다림"]
-
-    lines = [
-        f"{first}이 {second} 위에 조용히 내려앉는다",
-        f"나는 {third}를 기다리며 {images[0]}을 바라본다",
-        f"젖은 시간은 주머니 속에서 조금씩 구겨지고",
-        f"{fourth}은 오지 않는 바퀴 소리처럼 길어진다",
-        f"가로등 아래 내 이름이 잠깐 흐려진다",
-        f"밤은 아직 도착하지 않은 문장으로 서 있다",
-    ]
-
-    if req.dadaIntensity >= 70:
-        lines.insert(3, f"{first} / {second} / {third}")
-    if req.dadaIntensity >= 85:
-        lines.append(f"도착 / 미도착 / 다시 {fourth}")
-
-    return "\n".join(lines[:9])
+    return matched == 0
 
 
 def apply_chat_template(system: str, user: str) -> str:
@@ -229,11 +229,9 @@ def build_experiment_seed_prompt(req: GenerateRequest) -> str:
     return apply_chat_template(system, user)
 
 
-def generate_prompt_mode(req: GenerateRequest) -> str:
+def generate_prompt_once(req: GenerateRequest, temperature: float, top_p: float) -> str:
     prompt = build_prompt_mode_prompt(req)
     inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
-    temperature = min(0.82, 0.48 + req.languageJump * 0.004)
-    top_p = 0.82
     repetition_penalty = 1.12 + max(0, 70 - req.dadaIntensity) * 0.003
 
     with torch.no_grad():
@@ -249,10 +247,20 @@ def generate_prompt_mode(req: GenerateRequest) -> str:
             eos_token_id=tokenizer.eos_token_id,
         )
     generated = output_ids[0][inputs["input_ids"].shape[-1]:]
-    poem = clean_text(tokenizer.decode(generated, skip_special_tokens=True))
-    if is_invalid_poem(poem, req.experience):
-        return repair_poem_from_experience(req)
-    return poem
+    return clean_text(tokenizer.decode(generated, skip_special_tokens=True))
+
+
+def generate_prompt_mode(req: GenerateRequest) -> Tuple[str, str]:
+    first_temperature = min(0.82, 0.48 + req.languageJump * 0.004)
+    first_poem = generate_prompt_once(req, temperature=first_temperature, top_p=0.82)
+    if not is_invalid_poem(first_poem, req.experience):
+        return first_poem, "first_pass"
+
+    retry_poem = generate_prompt_once(req, temperature=0.42, top_p=0.68)
+    if not is_invalid_poem(retry_poem, req.experience):
+        return retry_poem, "retry_low_temperature"
+
+    return FAILURE_MESSAGE, "failed_validation"
 
 
 def keyword_token_ids(keywords: List[str]) -> List[int]:
@@ -282,7 +290,7 @@ def apply_dada_postprocess(poem: str, dada_intensity: int) -> str:
     return "\n".join(lines[:11])
 
 
-def generate_experiment_mode(req: GenerateRequest) -> str:
+def generate_experiment_once(req: GenerateRequest, temperature_multiplier: float = 1.0) -> str:
     prompt = build_experiment_seed_prompt(req)
     input_ids = tokenizer(prompt, return_tensors="pt")["input_ids"].to(DEVICE)
     prompt_length = input_ids.shape[-1]
@@ -293,7 +301,7 @@ def generate_experiment_mode(req: GenerateRequest) -> str:
 
     remove_top_n = int(2 + req.languageJump * 0.28)
     band_size = int(25 + req.languageJump * 1.35)
-    temperature = 0.7 + req.languageJump * 0.012
+    temperature = (0.7 + req.languageJump * 0.012) * temperature_multiplier
     topk = max(remove_top_n + 5, min(EXPERIMENT_TOPK, model.config.vocab_size))
 
     generated = input_ids
@@ -312,7 +320,7 @@ def generate_experiment_mode(req: GenerateRequest) -> str:
 
             logits = logits / max(temperature, 0.1)
 
-            topk_logits, topk_indices = torch.topk(logits, k=topk, dim=-1)
+            _, topk_indices = torch.topk(logits, k=topk, dim=-1)
             start = min(remove_top_n, topk_indices.shape[-1] - 2)
             end = min(start + band_size, topk_indices.shape[-1])
             candidate_indices = topk_indices[:, start:end]
@@ -331,10 +339,19 @@ def generate_experiment_mode(req: GenerateRequest) -> str:
                 break
 
     decoded = tokenizer.decode(generated[0][prompt_length:], skip_special_tokens=True)
-    poem = apply_dada_postprocess(clean_text(decoded), req.dadaIntensity)
-    if is_invalid_poem(poem, req.experience):
-        return repair_poem_from_experience(req)
-    return poem
+    return apply_dada_postprocess(clean_text(decoded), req.dadaIntensity)
+
+
+def generate_experiment_mode(req: GenerateRequest) -> Tuple[str, str]:
+    first_poem = generate_experiment_once(req, temperature_multiplier=1.0)
+    if not is_invalid_poem(first_poem, req.experience):
+        return first_poem, "first_pass_custom_decoding"
+
+    retry_poem = generate_experiment_once(req, temperature_multiplier=0.62)
+    if not is_invalid_poem(retry_poem, req.experience):
+        return retry_poem, "retry_lower_temperature_custom_decoding"
+
+    return FAILURE_MESSAGE, "failed_validation"
 
 
 @app.get("/")
@@ -350,9 +367,10 @@ def root():
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest):
     if req.mode == "experiment":
-        poem = generate_experiment_mode(req)
+        poem, validation_status = generate_experiment_mode(req)
         params = {
             "mode": "custom_decoding",
+            "validation_status": validation_status,
             "experience_boost": round(0.6 + req.experienceDensity * 0.035, 3),
             "remove_top_n": int(2 + req.languageJump * 0.28),
             "band_size": int(25 + req.languageJump * 1.35),
@@ -362,11 +380,14 @@ def generate(req: GenerateRequest):
             "temperature": round(0.7 + req.languageJump * 0.012, 3),
         }
     else:
-        poem = generate_prompt_mode(req)
+        poem, validation_status = generate_prompt_mode(req)
         params = {
             "mode": "prompt_instruction",
+            "validation_status": validation_status,
             "temperature": round(min(0.82, 0.48 + req.languageJump * 0.004), 3),
+            "retry_temperature": 0.42,
             "top_p": 0.82,
+            "retry_top_p": 0.68,
             "max_new_tokens": MAX_NEW_TOKENS,
         }
 
