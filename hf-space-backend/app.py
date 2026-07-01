@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal
 
 import torch
 from fastapi import FastAPI
@@ -10,6 +10,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_ID = os.getenv("MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "180"))
+EXPERIMENT_MAX_NEW_TOKENS = int(os.getenv("EXPERIMENT_MAX_NEW_TOKENS", "80"))
+EXPERIMENT_TOPK = int(os.getenv("EXPERIMENT_TOPK", "220"))
 
 app = FastAPI(title="Poem Generator Backend")
 app.add_middleware(
@@ -20,6 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class GenerateRequest(BaseModel):
     mode: Literal["prompt", "experiment"] = "prompt"
     experience: str = ""
@@ -27,11 +30,13 @@ class GenerateRequest(BaseModel):
     languageJump: int = Field(default=65, ge=0, le=100)
     dadaIntensity: int = Field(default=40, ge=0, le=100)
 
+
 class GenerateResponse(BaseModel):
     poem: str
     mode: str
     model: str
     params: Dict[str, float | int | str]
+
 
 print(f"Loading model: {MODEL_ID}")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
@@ -205,11 +210,12 @@ def generate_experiment_mode(req: GenerateRequest) -> str:
     remove_top_n = int(2 + req.languageJump * 0.28)
     band_size = int(25 + req.languageJump * 1.35)
     temperature = 0.7 + req.languageJump * 0.012
+    topk = max(remove_top_n + 5, min(EXPERIMENT_TOPK, model.config.vocab_size))
 
     generated = input_ids
 
     with torch.no_grad():
-        for _ in range(MAX_NEW_TOKENS):
+        for _ in range(EXPERIMENT_MAX_NEW_TOKENS):
             outputs = model(generated)
             logits = outputs.logits[:, -1, :].float()
 
@@ -222,10 +228,11 @@ def generate_experiment_mode(req: GenerateRequest) -> str:
                 logits[:, tokenizer.eos_token_id] -= 0.2
 
             logits = logits / max(temperature, 0.1)
-            sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
-            start = min(remove_top_n, sorted_indices.shape[-1] - 2)
-            end = min(start + band_size, sorted_indices.shape[-1])
-            candidate_indices = sorted_indices[:, start:end]
+
+            topk_logits, topk_indices = torch.topk(logits, k=topk, dim=-1)
+            start = min(remove_top_n, topk_indices.shape[-1] - 2)
+            end = min(start + band_size, topk_indices.shape[-1])
+            candidate_indices = topk_indices[:, start:end]
             candidate_logits = torch.gather(logits, 1, candidate_indices)
             probs = torch.softmax(candidate_logits, dim=-1)
             sampled_pos = torch.multinomial(probs, num_samples=1)
@@ -237,7 +244,7 @@ def generate_experiment_mode(req: GenerateRequest) -> str:
                 break
 
             decoded_so_far = tokenizer.decode(generated[0][prompt_length:], skip_special_tokens=True)
-            if decoded_so_far.count("\n") >= 10:
+            if decoded_so_far.count("\n") >= 7:
                 break
 
     decoded = tokenizer.decode(generated[0][prompt_length:], skip_special_tokens=True)
@@ -263,6 +270,9 @@ def generate(req: GenerateRequest):
             "experience_boost": round(0.6 + req.experienceDensity * 0.035, 3),
             "remove_top_n": int(2 + req.languageJump * 0.28),
             "band_size": int(25 + req.languageJump * 1.35),
+            "topk": EXPERIMENT_TOPK,
+            "max_new_tokens": EXPERIMENT_MAX_NEW_TOKENS,
+            "newline_stop": 7,
             "temperature": round(0.7 + req.languageJump * 0.012, 3),
         }
     else:
@@ -271,6 +281,7 @@ def generate(req: GenerateRequest):
             "mode": "prompt_instruction",
             "temperature": round(0.55 + req.languageJump * 0.006, 3),
             "top_p": 0.88,
+            "max_new_tokens": MAX_NEW_TOKENS,
         }
 
     return GenerateResponse(
