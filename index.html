@@ -59,7 +59,7 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      min-height: 620px;
+      min-height: 660px;
     }
 
     .eyebrow {
@@ -95,6 +95,58 @@
       margin: 24px 0 0;
       color: var(--muted);
       font-size: 17px;
+      word-break: keep-all;
+    }
+
+    .mode-box {
+      margin-top: 28px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.36);
+    }
+
+    .mode-label {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .mode-toggle {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 6px;
+      border-radius: 18px;
+      background: rgba(58, 50, 44, 0.08);
+    }
+
+    .mode-button {
+      padding: 12px 10px;
+      border-radius: 14px;
+      color: var(--muted);
+      background: transparent;
+      box-shadow: none;
+      font-size: 14px;
+    }
+
+    .mode-button:hover {
+      transform: none;
+    }
+
+    .mode-button.active {
+      color: #fffaf3;
+      background: var(--accent);
+      box-shadow: 0 10px 22px rgba(58, 50, 44, 0.18);
+    }
+
+    .mode-description {
+      margin: 12px 2px 0;
+      color: var(--muted);
+      font-size: 13px;
       word-break: keep-all;
     }
 
@@ -283,6 +335,17 @@
           <p class="description">
             시가 일상언어를 공격해 경험 기반의 언어적 도약을 만든다면, LLM은 방대한 데이터의 확률분포에서 다음 단어를 고른다. 이 생성기는 경험 프롬프트, 로짓 부스트, 디코딩 조작을 통해 평균적인 언어를 벗어나는 시를 실험한다.
           </p>
+
+          <section class="mode-box" aria-label="생성 모드 선택">
+            <span class="mode-label">생성 모드</span>
+            <div class="mode-toggle" role="group" aria-label="생성 방식 선택">
+              <button class="mode-button active" type="button" data-mode="prompt">프롬프트 모드</button>
+              <button class="mode-button" type="button" data-mode="experiment">확률 실험 모드</button>
+            </div>
+            <p class="mode-description" id="modeDescription">
+              슬라이더 값을 모델 지시문으로 변환해 시적 문체를 유도합니다. 안정적이고 발표 시연에 적합한 생성 방식입니다.
+            </p>
+          </section>
         </div>
 
         <div class="concept-grid" aria-label="생성 원리 요약">
@@ -343,10 +406,10 @@
         </form>
 
         <article id="output" class="output empty" aria-live="polite">
-          생성 버튼을 누르면 이곳에 시가 나타납니다. 지금은 API 연결 전이므로 데모 생성 로직이 실행됩니다.
+          생성 버튼을 누르면 이곳에 시가 나타납니다. Vercel 환경변수와 OpenRouter API가 연결되면 실제 모델 생성이 실행됩니다.
         </article>
         <div class="meta">
-          <span>초기 모델: 오픈소스 텍스트 생성 모델 API 연결 예정</span>
+          <span id="modeMeta">현재 모드: 프롬프트 모드</span>
           <span id="status">ready</span>
         </div>
       </section>
@@ -354,12 +417,28 @@
   </main>
 
   <script>
-    const API_ENDPOINT = ""; // TODO: 백엔드 또는 모델 API 엔드포인트를 여기에 연결하세요.
+    const API_ENDPOINT = "/api/generate-poem";
 
     const form = document.querySelector("#poemForm");
     const output = document.querySelector("#output");
     const statusEl = document.querySelector("#status");
     const resetButton = document.querySelector("#resetButton");
+    const modeButtons = document.querySelectorAll(".mode-button");
+    const modeDescription = document.querySelector("#modeDescription");
+    const modeMeta = document.querySelector("#modeMeta");
+
+    let currentMode = "prompt";
+
+    const modeCopy = {
+      prompt: {
+        label: "프롬프트 모드",
+        description: "슬라이더 값을 모델 지시문으로 변환해 시적 문체를 유도합니다. 안정적이고 발표 시연에 적합한 생성 방식입니다."
+      },
+      experiment: {
+        label: "확률 실험 모드",
+        description: "슬라이더 값을 temperature, top_p, 후처리 규칙에 연결해 평균적 언어에서 벗어나는 정도를 실험합니다."
+      }
+    };
 
     const sliders = [
       ["experienceDensity", "experienceDensityValue"],
@@ -375,6 +454,15 @@
       });
     });
 
+    modeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        currentMode = button.dataset.mode;
+        modeButtons.forEach((item) => item.classList.toggle("active", item.dataset.mode === currentMode));
+        modeDescription.textContent = modeCopy[currentMode].description;
+        modeMeta.textContent = `현재 모드: ${modeCopy[currentMode].label}`;
+      });
+    });
+
     function pickWords(text) {
       const fallback = ["정류장", "비", "유리", "기다림", "이름", "숨", "불빛", "주머니"];
       const words = text
@@ -384,7 +472,7 @@
       return words.length ? words.slice(0, 10) : fallback;
     }
 
-    function createDemoPoem({ experience, experienceDensity, languageJump, dadaIntensity }) {
+    function createDemoPoem({ mode, experience, experienceDensity, languageJump, dadaIntensity }) {
       const words = pickWords(experience);
       const dadaMark = dadaIntensity > 70 ? " / " : " ";
       const jumpImages = languageJump > 75
@@ -401,14 +489,11 @@
         ? `\n${words.slice(0, 4).join(" / ")}\n없음이 다시 나를 부른다`
         : "";
 
-      return `${densityLine}\n나는 ${jumpImages[1]}을 손에 쥐고\n${words[2] || "어제"}의 안쪽에서 ${jumpImages[2]}를 본다\n말은 가장 낮은 확률로 젖고\n${words[3] || "기억"}은 아직 도착하지 않는다${fracture}`;
+      const modeLine = mode === "experiment" ? "[확률 실험 모드 데모]\n" : "[프롬프트 모드 데모]\n";
+      return `${modeLine}${densityLine}\n나는 ${jumpImages[1]}을 손에 쥐고\n${words[2] || "어제"}의 안쪽에서 ${jumpImages[2]}를 본다\n말은 가장 낮은 확률로 젖고\n${words[3] || "기억"}은 아직 도착하지 않는다${fracture}`;
     }
 
     async function generatePoem(payload) {
-      if (!API_ENDPOINT) {
-        return createDemoPoem(payload);
-      }
-
       const response = await fetch(API_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -416,17 +501,19 @@
       });
 
       if (!response.ok) {
-        throw new Error("API 요청에 실패했습니다.");
+        const fallback = await response.json().catch(() => null);
+        throw new Error(fallback?.error || "API 요청에 실패했습니다.");
       }
 
       const data = await response.json();
-      return data.poem || data.text || "시를 생성하지 못했습니다.";
+      return data.poem || data.text || createDemoPoem(payload);
     }
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
 
       const payload = {
+        mode: currentMode,
         experience: document.getElementById("experience").value.trim(),
         experienceDensity: Number(document.getElementById("experienceDensity").value),
         languageJump: Number(document.getElementById("languageJump").value),
@@ -442,9 +529,8 @@
         output.textContent = poem;
         statusEl.textContent = "done";
       } catch (error) {
-        output.classList.add("empty");
-        output.textContent = error.message;
-        statusEl.textContent = "error";
+        output.textContent = createDemoPoem(payload);
+        statusEl.textContent = "demo fallback";
       }
     });
 
@@ -454,7 +540,7 @@
         document.getElementById(valueId).textContent = document.getElementById(inputId).value;
       });
       output.classList.add("empty");
-      output.textContent = "생성 버튼을 누르면 이곳에 시가 나타납니다. 지금은 API 연결 전이므로 데모 생성 로직이 실행됩니다.";
+      output.textContent = "생성 버튼을 누르면 이곳에 시가 나타납니다. Vercel 환경변수와 OpenRouter API가 연결되면 실제 모델 생성이 실행됩니다.";
       statusEl.textContent = "ready";
     });
   </script>
