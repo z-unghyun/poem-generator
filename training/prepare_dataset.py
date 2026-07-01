@@ -1,70 +1,102 @@
-"""Prepare JSONL data for the probability-distribution poem generator.
+"""Validate the master poem dataset and build train.jsonl.
 
-Input files:
-- data/classic_poems_raw.jsonl
+Input:
 - data/experience_poem_pairs.jsonl
 
-Output file:
+Outputs:
 - data/train.jsonl
+- data/dataset_issues.jsonl
 
 Project rules:
 - Input is a user experience prompt.
-- Target output is always a 3-line Korean poem.
-- No hardcoded poem templates or demo fallback data are generated here.
+- Output is always a 3-line Korean poem.
+- Validation must not invent or replace poems.
+- Only rows that pass validation are converted to the training messages format.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
+from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-REQUIRED_PAIR_FIELDS = ("experience", "poem")
+SYSTEM_PROMPT = "너는 경험을 3줄 한국어 시로 바꾸는 시 생성 모델이다."
+
+REQUIRED_FIELDS = (
+    "id",
+    "source_type",
+    "source_title",
+    "source_author",
+    "source_text",
+    "experience",
+    "poem",
+    "style_tags",
+)
+
+ALLOWED_SOURCE_TYPES = {"classic_poem", "modern_daily"}
+PROSE_LIKE_PATTERNS = (
+    "입니다",
+    "합니다",
+    "하였다",
+    "했다",
+    "것이다",
+    "수 있다",
+    "보여준다",
+    "의미한다",
+    "상징한다",
+    "나타낸다",
+    "설명한다",
+)
+PROMPT_MARKERS = ("경험:", "시:", "해설", "제목:", "조건:", "```")
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
+@dataclass
+class Issue:
+    row_number: int
+    row_id: str
+    severity: str
+    reason: str
+    detail: str = ""
+    row: dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "row_number": self.row_number,
+            "id": self.row_id,
+            "severity": self.severity,
+            "reason": self.reason,
+            "detail": self.detail,
+            "row": self.row,
+        }
+
+
+def read_jsonl(path: Path) -> tuple[list[dict[str, Any]], list[Issue]]:
     rows: list[dict[str, Any]] = []
+    issues: list[Issue] = []
+
+    if not path.exists():
+        issues.append(Issue(0, "", "error", "input_file_not_found", str(path)))
+        return rows, issues
+
     with path.open("r", encoding="utf-8") as f:
         for line_number, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
+            raw = line.strip()
+            if not raw:
                 continue
             try:
-                row = json.loads(line)
+                row = json.loads(raw)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSONL at {path}:{line_number}: {exc}") from exc
+                issues.append(Issue(line_number, "", "error", "invalid_json", str(exc), {"raw": raw[:500]}))
+                continue
             if not isinstance(row, dict):
-                raise ValueError(f"Expected object at {path}:{line_number}")
-            rows.append(row)
-    return rows
-
-
-def normalize_poem(poem: str) -> str:
-    lines = [line.strip() for line in poem.splitlines() if line.strip()]
-    return "\n".join(lines)
-
-
-def validate_pair(row: dict[str, Any], source_path: Path, index: int) -> dict[str, Any]:
-    missing = [field for field in REQUIRED_PAIR_FIELDS if not str(row.get(field, "")).strip()]
-    if missing:
-        raise ValueError(f"Missing {missing} in {source_path} row {index}")
-
-    poem = normalize_poem(str(row["poem"]))
-    lines = [line for line in poem.splitlines() if line.strip()]
-    if len(lines) != 3:
-        raise ValueError(f"Poem must have exactly 3 non-empty lines in {source_path} row {index}; got {len(lines)}")
-
-    return {
-        "experience": str(row["experience"]).strip(),
-        "poem": poem,
-        "source_type": str(row.get("source_type", "unknown")).strip() or "unknown",
-        "source_title": str(row.get("source_title", "")).strip(),
-        "style_tags": row.get("style_tags", []),
-    }
+                issues.append(Issue(line_number, "", "error", "row_is_not_object", "Each JSONL line must be an object."))
+                continue
+            rows.append(row | {"__line_number": line_number})
+    return rows, issues
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -74,31 +106,140 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def build_train_rows(classic_rows: list[dict[str, Any]], experience_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for source_name, source_rows in (("classic_poems_raw.jsonl", classic_rows), ("experience_poem_pairs.jsonl", experience_rows)):
-        source_path = Path("data") / source_name
-        for index, row in enumerate(source_rows, start=1):
-            rows.append(validate_pair(row, source_path, index))
-    return rows
+def normalize_space(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip())
+
+
+def poem_lines(poem: str) -> list[str]:
+    return [line.strip() for line in poem.splitlines() if line.strip()]
+
+
+def is_style_tags_valid(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value)
+
+
+def has_prose_like_ending(poem: str) -> bool:
+    prose_hits = sum(poem.count(pattern) for pattern in PROSE_LIKE_PATTERNS)
+    return prose_hits >= 2
+
+
+def has_prompt_marker_leak(poem: str) -> bool:
+    return any(marker in poem for marker in PROMPT_MARKERS)
+
+
+def validate_row(row: dict[str, Any], seen_experiences: set[str]) -> tuple[bool, list[Issue]]:
+    row_number = int(row.get("__line_number", 0))
+    row_id = str(row.get("id", "")).strip()
+    issues: list[Issue] = []
+
+    def add(reason: str, detail: str = "", severity: str = "error") -> None:
+        clean_row = {k: v for k, v in row.items() if k != "__line_number"}
+        issues.append(Issue(row_number, row_id, severity, reason, detail, clean_row))
+
+    for field_name in REQUIRED_FIELDS:
+        if field_name not in row:
+            add("missing_field", field_name)
+
+    if not row_id:
+        add("empty_id")
+
+    source_type = str(row.get("source_type", "")).strip()
+    if source_type not in ALLOWED_SOURCE_TYPES:
+        add("invalid_source_type", source_type)
+
+    experience = str(row.get("experience", "")).strip()
+    if not experience:
+        add("empty_experience")
+    else:
+        normalized_experience = normalize_space(experience)
+        if normalized_experience in seen_experiences:
+            add("duplicate_experience", normalized_experience)
+        else:
+            seen_experiences.add(normalized_experience)
+        if len(experience) < 8:
+            add("experience_too_short", experience, severity="warning")
+        if len(experience) > 180:
+            add("experience_too_long", f"{len(experience)} chars", severity="warning")
+
+    poem = str(row.get("poem", "")).strip()
+    if not poem:
+        add("empty_poem")
+    else:
+        lines = poem_lines(poem)
+        if len(lines) != 3:
+            add("not_three_lines", f"got {len(lines)} lines")
+        for index, line in enumerate(lines, start=1):
+            if len(line) > 45:
+                add("poem_line_too_long", f"line {index}: {len(line)} chars", severity="warning")
+        if len(poem.replace("\n", "")) > 150:
+            add("poem_too_long", f"{len(poem)} chars", severity="warning")
+        if has_prose_like_ending(poem):
+            add("prose_report_like_output", "prose-like endings appeared repeatedly")
+        if has_prompt_marker_leak(poem):
+            add("prompt_marker_leak")
+
+    style_tags = row.get("style_tags", [])
+    if not is_style_tags_valid(style_tags):
+        add("invalid_style_tags", "style_tags must be a list of non-empty strings")
+
+    # Warnings do not block conversion. Errors do.
+    has_error = any(issue.severity == "error" for issue in issues)
+    return not has_error, issues
+
+
+def to_training_message(row: dict[str, Any]) -> dict[str, Any]:
+    experience = str(row["experience"]).strip()
+    poem = "\n".join(poem_lines(str(row["poem"])))
+    return {
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"경험: {experience}"},
+            {"role": "assistant", "content": poem},
+        ]
+    }
+
+
+def summarize(rows: list[dict[str, Any]], train_rows: list[dict[str, Any]], issues: list[Issue]) -> None:
+    source_counter = Counter(str(row.get("source_type", "unknown")) for row in rows)
+    issue_counter = Counter(issue.reason for issue in issues)
+    error_count = sum(issue.severity == "error" for issue in issues)
+    warning_count = sum(issue.severity == "warning" for issue in issues)
+
+    print("=== dataset summary ===")
+    print(f"master_rows={len(rows)}")
+    print(f"train_rows={len(train_rows)}")
+    print(f"source_type_counts={dict(source_counter)}")
+    print(f"errors={error_count}")
+    print(f"warnings={warning_count}")
+    print(f"issue_counts={dict(issue_counter)}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--classic", type=Path, default=Path("data/classic_poems_raw.jsonl"))
-    parser.add_argument("--experience", type=Path, default=Path("data/experience_poem_pairs.jsonl"))
-    parser.add_argument("--output", type=Path, default=Path("data/train.jsonl"))
+    parser = argparse.ArgumentParser(description="Validate poem dataset and build training JSONL.")
+    parser.add_argument("--input", type=Path, default=Path("data/experience_poem_pairs.jsonl"))
+    parser.add_argument("--train-output", type=Path, default=Path("data/train.jsonl"))
+    parser.add_argument("--issues-output", type=Path, default=Path("data/dataset_issues.jsonl"))
+    parser.add_argument("--fail-on-warning", action="store_true", help="Treat warning rows as blocked from train.jsonl.")
     args = parser.parse_args()
 
-    classic_rows = read_jsonl(args.classic)
-    experience_rows = read_jsonl(args.experience)
-    train_rows = build_train_rows(classic_rows, experience_rows)
-    write_jsonl(args.output, train_rows)
+    rows, read_issues = read_jsonl(args.input)
+    all_issues = list(read_issues)
+    seen_experiences: set[str] = set()
+    train_rows: list[dict[str, Any]] = []
 
-    print(f"classic_rows={len(classic_rows)}")
-    print(f"experience_rows={len(experience_rows)}")
-    print(f"train_rows={len(train_rows)}")
-    print(f"output={args.output}")
+    for row in rows:
+        valid, row_issues = validate_row(row, seen_experiences)
+        all_issues.extend(row_issues)
+        if args.fail_on_warning and row_issues:
+            valid = False
+        if valid:
+            train_rows.append(to_training_message(row))
+
+    write_jsonl(args.train_output, train_rows)
+    write_jsonl(args.issues_output, [issue.to_dict() for issue in all_issues])
+    summarize(rows, train_rows, all_issues)
+    print(f"train_output={args.train_output}")
+    print(f"issues_output={args.issues_output}")
 
 
 if __name__ == "__main__":
