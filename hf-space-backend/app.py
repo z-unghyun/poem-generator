@@ -18,7 +18,7 @@ try:
 except Exception:  # peft is only required when USE_ADAPTER=true or fallback is used.
     PeftModel = None
 
-APP_VERSION = "finetuned-space-backend-2026-07-03-stage15-logs-v1"
+APP_VERSION = "finetuned-space-backend-2026-07-03-stage16-decode-guard-v1"
 
 BASE_MODEL_ID = os.getenv("BASE_MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
 MODEL_ID = os.getenv("MODEL_ID", "z-unghyun/poem-generator-merged")
@@ -42,6 +42,23 @@ EXPERIMENT_LOG_PATH = os.getenv("EXPERIMENT_LOG_PATH", "/tmp/poem-generator/logs
 EXPOSE_EXPERIMENT_LOGS = os.getenv("EXPOSE_EXPERIMENT_LOGS", "false").lower() in {"1", "true", "yes", "y"}
 LOG_READ_TOKEN = os.getenv("LOG_READ_TOKEN", "").strip()
 LOG_MAX_READ_LINES = int(os.getenv("LOG_MAX_READ_LINES", "500"))
+
+ENABLE_EOJEOL_GUARD = os.getenv("ENABLE_EOJEOL_GUARD", "true").lower() in {"1", "true", "yes", "y"}
+ENABLE_BAD_TOKEN_GUARD = os.getenv("ENABLE_BAD_TOKEN_GUARD", "true").lower() in {"1", "true", "yes", "y"}
+ENABLE_REPETITION_PENALTY = os.getenv("ENABLE_REPETITION_PENALTY", "true").lower() in {"1", "true", "yes", "y"}
+ENABLE_NEWLINE_BIAS = os.getenv("ENABLE_NEWLINE_BIAS", "true").lower() in {"1", "true", "yes", "y"}
+BAD_TOKEN_SCAN_TOP_N = int(os.getenv("BAD_TOKEN_SCAN_TOP_N", "48"))
+NEWLINE_MIN_CHARS = int(os.getenv("NEWLINE_MIN_CHARS", "6"))
+NEWLINE_BIAS_START_CHARS = int(os.getenv("NEWLINE_BIAS_START_CHARS", "10"))
+NEWLINE_BIAS_VALUE = float(os.getenv("NEWLINE_BIAS_VALUE", "1.15"))
+NEWLINE_SUPPRESS_VALUE = float(os.getenv("NEWLINE_SUPPRESS_VALUE", "6.0"))
+REPETITION_PENALTY_LOW = float(os.getenv("REPETITION_PENALTY_LOW", "1.20"))
+REPETITION_PENALTY_MID = float(os.getenv("REPETITION_PENALTY_MID", "1.12"))
+REPETITION_PENALTY_HIGH = float(os.getenv("REPETITION_PENALTY_HIGH", "1.05"))
+EOJEOL_TEMPERATURE = float(os.getenv("EOJEOL_TEMPERATURE", "0.45"))
+EOJEOL_TOP_P = float(os.getenv("EOJEOL_TOP_P", "0.82"))
+EOJEOL_TOPK = int(os.getenv("EOJEOL_TOPK", "35"))
+EOJEOL_BAND_SIZE = int(os.getenv("EOJEOL_BAND_SIZE", "8"))
 
 SYSTEM_PROMPT = "너는 경험을 3줄 한국어 시로 바꾸는 시 생성 모델이다. 설명 없이 시만 쓴다."
 SHORT_PROMPT_TEMPLATE = "경험을 3줄 시로.\n경험: {experience}\n시:\n"
@@ -101,6 +118,23 @@ STOPWORDS = {
     "프로젝트를",
     "과제를",
 }
+BAD_TEXT_FRAGMENTS = (
+    "Answer",
+    "answer",
+    "Pros",
+    "bytes",
+    "String",
+    "speedsyn",
+    "경험:",
+    "시:",
+    "제목:",
+    "해설:",
+    "assistant",
+    "system",
+    "user",
+    "<|im_start|>",
+    "<|im_end|>",
+)
 
 if not torch.cuda.is_available():
     try:
@@ -208,9 +242,16 @@ def load_model_stack() -> Tuple[Any, Any, torch.device, str, str]:
 
 
 TOKENIZER, MODEL, DEVICE, LOADED_MODEL_ID, MODEL_LOAD_MODE = load_model_stack()
+NEWLINE_TOKEN_IDS = sorted(
+    set(
+        token_id
+        for text in ("\n", "\n\n")
+        for token_id in TOKENIZER.encode(text, add_special_tokens=False)
+    )
+)
 print(
     f"[startup] loaded mode={MODEL_LOAD_MODE} model={LOADED_MODEL_ID} "
-    f"device={DEVICE} cuda={torch.cuda.is_available()}",
+    f"device={DEVICE} cuda={torch.cuda.is_available()} newline_token_ids={NEWLINE_TOKEN_IDS}",
     flush=True,
 )
 
@@ -242,13 +283,13 @@ def build_generation_params(language_jump: int) -> Dict[str, Any]:
         remove_top_n = 1 if jump >= 48 else 0
         band_size = 12 + int(ratio * 16)
     else:
-        strategy = "strong_anti_greedy"
+        strategy = "strong_anti_greedy_guarded"
         ratio = (jump - 70) / 30.0
-        temperature = 0.70 + ratio * 0.25  # 0.70~0.95
-        top_p = 0.90 + ratio * 0.05  # 0.90~0.95
-        topk = 118 + int(ratio * 72)
-        remove_top_n = 2 + int(ratio * 2)
-        band_size = 28 + int(ratio * 18)
+        temperature = 0.70 + ratio * 0.12  # 0.70~0.82
+        top_p = 0.88 + ratio * 0.02  # 0.88~0.90
+        topk = 96 + int(ratio * 14)  # 96~110
+        remove_top_n = 1
+        band_size = 18 + int(ratio * 4)  # 18~22
 
     return {
         "language_jump": jump,
@@ -262,6 +303,10 @@ def build_generation_params(language_jump: int) -> Dict[str, Any]:
         "max_new_tokens": MAX_NEW_TOKENS,
         "prompt_style": PROMPT_STYLE,
         "use_kv_cache": True,
+        "eojeol_guard": ENABLE_EOJEOL_GUARD,
+        "bad_token_guard": ENABLE_BAD_TOKEN_GUARD,
+        "repetition_penalty_enabled": ENABLE_REPETITION_PENALTY,
+        "newline_bias_enabled": ENABLE_NEWLINE_BIAS,
     }
 
 
@@ -280,13 +325,137 @@ def build_prompt(experience: str) -> str:
     return SHORT_PROMPT_TEMPLATE.format(experience=clean_experience)
 
 
-def apply_custom_logits_filter(logits: torch.Tensor, params: Dict[str, Any]) -> torch.Tensor:
-    scaled = logits.float() / max(float(params["temperature"]), 1e-5)
+def current_line_info(text: str) -> Tuple[int, str, int]:
+    lines = nonempty_lines(text)
+    line_count = len(lines)
+    last_line = lines[-1] if lines else ""
+    last_line_chars = len(last_line.replace(" ", ""))
+    return line_count, last_line, last_line_chars
+
+
+def is_inside_eojeol(generated_text: str) -> bool:
+    if not generated_text:
+        return False
+    last = generated_text[-1]
+    if last.isspace():
+        return False
+    if last in {".", ",", "?", "!", "…", ";", ":", "'", '"', "“", "”", "‘", "’", "(", ")", "[", "]", "{", "}", "-", "—"}:
+        return False
+    return bool(re.match(r"[가-힣A-Za-z0-9]", last))
+
+
+def get_effective_params(params: Dict[str, Any], generated_text: str) -> Tuple[Dict[str, Any], bool]:
+    if not ENABLE_EOJEOL_GUARD or not is_inside_eojeol(generated_text):
+        return params, False
+
+    stable = dict(params)
+    stable["temperature"] = min(float(params["temperature"]), EOJEOL_TEMPERATURE)
+    stable["top_p"] = min(float(params["top_p"]), EOJEOL_TOP_P)
+    stable["topk"] = min(int(params["topk"]), EOJEOL_TOPK)
+    stable["remove_top_n"] = 0
+    stable["band_size"] = min(int(params["band_size"]), EOJEOL_BAND_SIZE)
+    stable["strategy"] = f"{params.get('strategy', 'sampling')}_inside_eojeol_stable"
+    return stable, True
+
+
+def get_repetition_penalty(language_jump: int) -> float:
+    if language_jump <= 25:
+        return REPETITION_PENALTY_LOW
+    if language_jump <= 70:
+        return REPETITION_PENALTY_MID
+    return REPETITION_PENALTY_HIGH
+
+
+def apply_repetition_penalty(logits: torch.Tensor, generated_ids: List[int], params: Dict[str, Any]) -> torch.Tensor:
+    if not ENABLE_REPETITION_PENALTY or not generated_ids:
+        return logits
+    penalty = max(1.0, get_repetition_penalty(int(params.get("language_jump", 65))))
+    if penalty <= 1.0:
+        return logits
+    for token_id in set(generated_ids):
+        if 0 <= token_id < logits.shape[-1]:
+            logits[:, token_id] = logits[:, token_id] / penalty
+    return logits
+
+
+def apply_newline_bias(logits: torch.Tensor, generated_text: str) -> Tuple[torch.Tensor, str]:
+    if not ENABLE_NEWLINE_BIAS or not NEWLINE_TOKEN_IDS:
+        return logits, "none"
+
+    line_count, _, last_line_chars = current_line_info(generated_text)
+    valid_ids = [token_id for token_id in NEWLINE_TOKEN_IDS if 0 <= token_id < logits.shape[-1]]
+    if not valid_ids:
+        return logits, "none"
+
+    if line_count >= NEWLINE_STOP:
+        logits[:, valid_ids] = logits[:, valid_ids] - NEWLINE_SUPPRESS_VALUE
+        return logits, "suppress_after_three_lines"
+
+    if last_line_chars < NEWLINE_MIN_CHARS:
+        logits[:, valid_ids] = logits[:, valid_ids] - NEWLINE_SUPPRESS_VALUE
+        return logits, "suppress_too_short_line"
+
+    if line_count in {1, 2} and last_line_chars >= NEWLINE_BIAS_START_CHARS:
+        logits[:, valid_ids] = logits[:, valid_ids] + NEWLINE_BIAS_VALUE
+        return logits, "boost_line_break"
+
+    return logits, "none"
+
+
+def is_bad_token_text(token_text: str) -> bool:
+    if not token_text:
+        return False
+    if "�" in token_text:
+        return True
+    if any(fragment in token_text for fragment in BAD_TEXT_FRAGMENTS):
+        return True
+    if re.search(r"[ㄱ-ㅎㅏ-ㅣ]{2,}", token_text):
+        return True
+    if re.search(r"[A-Za-z]{4,}", token_text) and "AI" not in token_text:
+        return True
+    if len(re.findall(r"[\u4e00-\u9fff]", token_text)) >= 2:
+        return True
+    return False
+
+
+def apply_bad_token_guard(logits: torch.Tensor, stats: Dict[str, Any]) -> torch.Tensor:
+    if not ENABLE_BAD_TOKEN_GUARD:
+        return logits
+    scan_n = max(1, min(BAD_TOKEN_SCAN_TOP_N, logits.shape[-1]))
+    _, candidate_ids = torch.topk(logits, k=scan_n, dim=-1, largest=True, sorted=False)
+    blocked = 0
+    for token_id in candidate_ids[0].tolist():
+        token_text = TOKENIZER.decode([int(token_id)], skip_special_tokens=False)
+        if is_bad_token_text(token_text):
+            logits[:, int(token_id)] = float("-inf")
+            blocked += 1
+    stats["bad_tokens_blocked"] = stats.get("bad_tokens_blocked", 0) + blocked
+    return logits
+
+
+def apply_custom_logits_filter(
+    logits: torch.Tensor,
+    params: Dict[str, Any],
+    generated_ids: List[int],
+    generated_text: str,
+    stats: Dict[str, Any],
+) -> torch.Tensor:
+    effective_params, eojeol_stabilized = get_effective_params(params, generated_text)
+    if eojeol_stabilized:
+        stats["eojeol_stabilized_steps"] = stats.get("eojeol_stabilized_steps", 0) + 1
+
+    scaled = logits.float().clone()
+    scaled = apply_repetition_penalty(scaled, generated_ids, params)
+    scaled, newline_action = apply_newline_bias(scaled, generated_text)
+    if newline_action != "none":
+        stats[f"newline_{newline_action}_steps"] = stats.get(f"newline_{newline_action}_steps", 0) + 1
+
+    scaled = scaled / max(float(effective_params["temperature"]), 1e-5)
     vocab_size = scaled.shape[-1]
 
-    remove_top_n = max(0, min(int(params["remove_top_n"]), vocab_size - 2))
-    topk = max(1, min(int(params["topk"]), vocab_size - remove_top_n))
-    band_size = max(1, min(int(params["band_size"]), vocab_size - remove_top_n))
+    remove_top_n = max(0, min(int(effective_params["remove_top_n"]), vocab_size - 2))
+    topk = max(1, min(int(effective_params["topk"]), vocab_size - remove_top_n))
+    band_size = max(1, min(int(effective_params["band_size"]), vocab_size - remove_top_n))
     candidate_count = max(1, min(vocab_size, remove_top_n + topk + band_size))
 
     top_values, top_indices = torch.topk(scaled, k=candidate_count, dim=-1, largest=True, sorted=True)
@@ -296,7 +465,7 @@ def apply_custom_logits_filter(logits: torch.Tensor, params: Dict[str, Any]) -> 
     if kept_values.numel() == 0:
         return scaled
 
-    top_p = float(params["top_p"])
+    top_p = float(effective_params["top_p"])
     if top_p < 1.0:
         kept_probs = torch.softmax(kept_values, dim=-1)
         cumulative_probs = torch.cumsum(kept_probs, dim=-1)
@@ -307,6 +476,7 @@ def apply_custom_logits_filter(logits: torch.Tensor, params: Dict[str, Any]) -> 
 
     filtered = torch.full_like(scaled, float("-inf"))
     filtered.scatter_(dim=-1, index=kept_indices, src=kept_values)
+    filtered = apply_bad_token_guard(filtered, stats)
     return filtered
 
 
@@ -357,6 +527,10 @@ def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> Tu
     next_input_ids = input_ids
     stopped_reason = "max_new_tokens"
     decode_steps = 0
+    guard_stats: Dict[str, Any] = {
+        "bad_tokens_blocked": 0,
+        "eojeol_stabilized_steps": 0,
+    }
     loop_started = time.time()
 
     for step in range(int(params["max_new_tokens"])):
@@ -367,7 +541,7 @@ def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> Tu
 
         past_key_values = outputs.past_key_values
         raw_logits = outputs.logits[:, -1, :]
-        filtered_logits = apply_custom_logits_filter(raw_logits, params)
+        filtered_logits = apply_custom_logits_filter(raw_logits, params, generated_ids, generated_text, guard_stats)
         next_token = sample_next_token(filtered_logits, raw_logits).to(DEVICE)
         token_id = int(next_token.item())
         decode_steps = step + 1
@@ -404,6 +578,7 @@ def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> Tu
         "generation_seconds": round(generation_seconds, 3),
         "tokens_per_second": round(len(generated_ids) / generation_seconds, 3),
         "stopped_reason": stopped_reason,
+        **guard_stats,
     }
     return final_text, stats
 
@@ -630,6 +805,8 @@ def build_experiment_log_record(
         "model_load_mode": params.get("model_load_mode"),
         "model": params.get("model"),
         "app_version": params.get("app_version"),
+        "bad_tokens_blocked": params.get("bad_tokens_blocked"),
+        "eojeol_stabilized_steps": params.get("eojeol_stabilized_steps"),
     }
 
 
@@ -649,6 +826,8 @@ def append_experiment_log(record: Dict[str, Any]) -> None:
         "validation_status": record.get("validation_status"),
         "validation_reason": record.get("validation_reason"),
         "elapsed_seconds": record.get("elapsed_seconds"),
+        "bad_tokens_blocked": record.get("bad_tokens_blocked"),
+        "eojeol_stabilized_steps": record.get("eojeol_stabilized_steps"),
     }
     print(f"[experiment_log] {json.dumps(safe_summary, ensure_ascii=False)}", flush=True)
 
@@ -712,6 +891,14 @@ def root() -> Dict[str, Any]:
         "experiment_log_endpoints_exposed": EXPOSE_EXPERIMENT_LOGS,
         "log_experience": LOG_EXPERIENCE,
         "log_poem": LOG_POEM,
+        "decode_guards": {
+            "eojeol_guard": ENABLE_EOJEOL_GUARD,
+            "bad_token_guard": ENABLE_BAD_TOKEN_GUARD,
+            "repetition_penalty": ENABLE_REPETITION_PENALTY,
+            "newline_bias": ENABLE_NEWLINE_BIAS,
+            "bad_token_scan_top_n": BAD_TOKEN_SCAN_TOP_N,
+            "newline_token_ids": NEWLINE_TOKEN_IDS,
+        },
     }
 
 
@@ -788,6 +975,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
         f"[generate][{request_id}] status={validation_status} reason={validation_reason} "
         f"jump={params['language_jump']} tokens={params.get('generated_tokens')} "
         f"tok_s={params.get('tokens_per_second')} stopped={params.get('stopped_reason')} "
+        f"bad_blocked={params.get('bad_tokens_blocked')} eojeol_steps={params.get('eojeol_stabilized_steps')} "
         f"elapsed={elapsed_seconds}s",
         flush=True,
     )
