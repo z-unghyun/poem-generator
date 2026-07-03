@@ -1,9 +1,8 @@
-import math
 import os
 import re
 import time
 import uuid
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Tuple
 
 import torch
 from fastapi import FastAPI
@@ -16,24 +15,25 @@ try:
 except Exception:  # peft is only required when USE_ADAPTER=true or fallback is used.
     PeftModel = None
 
-APP_VERSION = "finetuned-space-backend-2026-07-03-stage10-v1"
+APP_VERSION = "finetuned-space-backend-2026-07-03-stage14-v1"
 
 BASE_MODEL_ID = os.getenv("BASE_MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
 MODEL_ID = os.getenv("MODEL_ID", "z-unghyun/poem-generator-merged")
 ADAPTER_ID = os.getenv("ADAPTER_ID", "z-unghyun/poem-generator-lora-adapter")
 USE_ADAPTER = os.getenv("USE_ADAPTER", "false").lower() in {"1", "true", "yes", "y"}
 ENABLE_ADAPTER_FALLBACK = os.getenv("ENABLE_ADAPTER_FALLBACK", "true").lower() in {"1", "true", "yes", "y"}
+PROMPT_STYLE = os.getenv("PROMPT_STYLE", "short").lower()
 
 SHOW_INVALID_OUTPUTS = True
 MODE = "finetuned_experiment"
 NEWLINE_STOP = int(os.getenv("NEWLINE_STOP", "3"))
-MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "60"))
+MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "52"))
 MIN_LAST_LINE_CHARS = int(os.getenv("MIN_LAST_LINE_CHARS", "4"))
+THIRD_LINE_MAX_CHARS = int(os.getenv("THIRD_LINE_MAX_CHARS", "22"))
+CPU_NUM_THREADS = int(os.getenv("TORCH_NUM_THREADS", "2"))
 
-SYSTEM_PROMPT = (
-    "너는 경험을 3줄 한국어 시로 바꾸는 시 생성 모델이다. "
-    "설명 없이 시만 정확히 3줄로 쓴다."
-)
+SYSTEM_PROMPT = "너는 경험을 3줄 한국어 시로 바꾸는 시 생성 모델이다. 설명 없이 시만 쓴다."
+SHORT_PROMPT_TEMPLATE = "경험을 3줄 시로.\n경험: {experience}\n시:\n"
 
 STOP_STRINGS = ["<|im_end|>", "<|endoftext|>"]
 PROMPT_MARKERS = (
@@ -91,6 +91,12 @@ STOPWORDS = {
     "과제를",
 }
 
+if not torch.cuda.is_available():
+    try:
+        torch.set_num_threads(max(1, CPU_NUM_THREADS))
+    except Exception as exc:
+        print(f"[startup] torch.set_num_threads skipped: {repr(exc)}", flush=True)
+
 app = FastAPI(title="Dadaism Poem Generator Backend", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
@@ -114,7 +120,6 @@ class GenerateResponse(BaseModel):
     mode: Literal["finetuned_experiment"]
     model: str
     params: Dict[str, Any]
-    # Backward-compatible top-level fields. Frontend can read either top-level or params.*.
     validation_status: Literal["valid", "invalid_shown"]
     validation_reason: str
 
@@ -139,13 +144,20 @@ def load_tokenizer(model_id: str):
     return tokenizer
 
 
+def finalize_model(model: Any) -> Any:
+    if not torch.cuda.is_available():
+        model.to("cpu")
+    model.eval()
+    if hasattr(model, "config"):
+        model.config.use_cache = True
+    return model
+
+
 def load_merged_model() -> Tuple[Any, Any, torch.device, str, str]:
     print(f"[startup] loading merged model: {MODEL_ID}", flush=True)
     tokenizer = load_tokenizer(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, **env_device_kwargs())
-    if not torch.cuda.is_available():
-        model.to("cpu")
-    model.eval()
+    model = finalize_model(model)
     device = next(model.parameters()).device
     return tokenizer, model, device, MODEL_ID, "merged"
 
@@ -159,9 +171,7 @@ def load_adapter_model() -> Tuple[Any, Any, torch.device, str, str]:
     tokenizer = load_tokenizer(BASE_MODEL_ID)
     base_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL_ID, **env_device_kwargs())
     model = PeftModel.from_pretrained(base_model, ADAPTER_ID)
-    if not torch.cuda.is_available():
-        model.to("cpu")
-    model.eval()
+    model = finalize_model(model)
     device = next(model.parameters()).device
     return tokenizer, model, device, ADAPTER_ID, "adapter"
 
@@ -169,7 +179,7 @@ def load_adapter_model() -> Tuple[Any, Any, torch.device, str, str]:
 def load_model_stack() -> Tuple[Any, Any, torch.device, str, str]:
     print(
         f"[startup] app_version={APP_VERSION} use_adapter={USE_ADAPTER} "
-        f"model_id={MODEL_ID} adapter_id={ADAPTER_ID}",
+        f"model_id={MODEL_ID} adapter_id={ADAPTER_ID} prompt_style={PROMPT_STYLE}",
         flush=True,
     )
 
@@ -203,27 +213,27 @@ def build_generation_params(language_jump: int) -> Dict[str, Any]:
 
     if jump <= 30:
         strategy = "stable_guided_sampling"
-        temperature = 0.42 + (jump / 30.0) * 0.13  # 0.42~0.55
-        top_p = 0.82 + (jump / 30.0) * 0.04  # 0.82~0.86
-        topk = 45 + int(jump * 0.8)
+        temperature = 0.40 + (jump / 30.0) * 0.12  # 0.40~0.52
+        top_p = 0.80 + (jump / 30.0) * 0.04  # 0.80~0.84
+        topk = 38 + int(jump * 0.7)
         remove_top_n = 0
-        band_size = 10 + int(jump * 0.2)
+        band_size = 8 + int(jump * 0.18)
     elif jump <= 70:
         strategy = "mild_anti_greedy"
         ratio = (jump - 30) / 40.0
-        temperature = 0.55 + ratio * 0.20  # 0.55~0.75
-        top_p = 0.86 + ratio * 0.06  # 0.86~0.92
-        topk = 70 + int(ratio * 70)
-        remove_top_n = 1 if jump >= 45 else 0
-        band_size = 16 + int(ratio * 20)
+        temperature = 0.52 + ratio * 0.18  # 0.52~0.70
+        top_p = 0.84 + ratio * 0.06  # 0.84~0.90
+        topk = 58 + int(ratio * 56)
+        remove_top_n = 1 if jump >= 48 else 0
+        band_size = 12 + int(ratio * 16)
     else:
         strategy = "strong_anti_greedy"
         ratio = (jump - 70) / 30.0
-        temperature = 0.75 + ratio * 0.30  # 0.75~1.05
-        top_p = 0.92 + ratio * 0.05  # 0.92~0.97
-        topk = 140 + int(ratio * 90)
-        remove_top_n = 2 + int(ratio * 3)
-        band_size = 36 + int(ratio * 24)
+        temperature = 0.70 + ratio * 0.25  # 0.70~0.95
+        top_p = 0.90 + ratio * 0.05  # 0.90~0.95
+        topk = 118 + int(ratio * 72)
+        remove_top_n = 2 + int(ratio * 2)
+        band_size = 28 + int(ratio * 18)
 
     return {
         "language_jump": jump,
@@ -235,80 +245,86 @@ def build_generation_params(language_jump: int) -> Dict[str, Any]:
         "band_size": int(band_size),
         "newline_stop": NEWLINE_STOP,
         "max_new_tokens": MAX_NEW_TOKENS,
+        "prompt_style": PROMPT_STYLE,
+        "use_kv_cache": True,
     }
 
 
 def build_prompt(experience: str) -> str:
     clean_experience = (experience or "").strip() or "비어 있는 경험"
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"경험: {clean_experience}"},
-    ]
-    if hasattr(TOKENIZER, "apply_chat_template"):
-        return TOKENIZER.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    return f"system: {SYSTEM_PROMPT}\nuser: 경험: {clean_experience}\nassistant:\n"
+
+    if PROMPT_STYLE == "chat":
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"경험: {clean_experience}"},
+        ]
+        if hasattr(TOKENIZER, "apply_chat_template"):
+            return TOKENIZER.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        return f"system: {SYSTEM_PROMPT}\nuser: 경험: {clean_experience}\nassistant:\n"
+
+    # Short prompt for CPU Space inference. The model has already been fine-tuned on experience -> 3-line poem.
+    return SHORT_PROMPT_TEMPLATE.format(experience=clean_experience)
 
 
 def apply_custom_logits_filter(logits: torch.Tensor, params: Dict[str, Any]) -> torch.Tensor:
-    filtered = logits.float().clone()
-    temperature = max(float(params["temperature"]), 1e-5)
-    filtered = filtered / temperature
+    """Apply temperature, anti-greedy removal, top-k/band, and top-p using partial top-k.
 
-    vocab_size = filtered.shape[-1]
-    sorted_logits, sorted_indices = torch.sort(filtered, descending=True, dim=-1)
+    Stage 10 sorted the full vocabulary twice per token. On CPU this is expensive.
+    This version only keeps remove_top_n + topk + band_size candidates, then applies top-p
+    inside that reduced candidate band while preserving the same experimental structure.
+    """
+    scaled = logits.float() / max(float(params["temperature"]), 1e-5)
+    vocab_size = scaled.shape[-1]
 
     remove_top_n = max(0, min(int(params["remove_top_n"]), vocab_size - 2))
     topk = max(1, min(int(params["topk"]), vocab_size - remove_top_n))
     band_size = max(1, min(int(params["band_size"]), vocab_size - remove_top_n))
-    keep_count = max(topk, min(vocab_size - remove_top_n, topk + band_size))
+    candidate_count = max(1, min(vocab_size, remove_top_n + topk + band_size))
 
-    allowed = torch.full_like(filtered, float("-inf"))
-    keep_indices = sorted_indices[:, remove_top_n : remove_top_n + keep_count]
-    keep_logits = sorted_logits[:, remove_top_n : remove_top_n + keep_count]
-    allowed.scatter_(dim=-1, index=keep_indices, src=keep_logits)
+    top_values, top_indices = torch.topk(scaled, k=candidate_count, dim=-1, largest=True, sorted=True)
+    kept_values = top_values[:, remove_top_n:]
+    kept_indices = top_indices[:, remove_top_n:]
+
+    if kept_values.numel() == 0:
+        return scaled
 
     top_p = float(params["top_p"])
     if top_p < 1.0:
-        sorted_allowed, sorted_allowed_indices = torch.sort(allowed, descending=True, dim=-1)
-        sorted_probs = torch.softmax(sorted_allowed, dim=-1)
-        cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+        kept_probs = torch.softmax(kept_values, dim=-1)
+        cumulative_probs = torch.cumsum(kept_probs, dim=-1)
         remove_mask = cumulative_probs > top_p
         remove_mask[..., 1:] = remove_mask[..., :-1].clone()
         remove_mask[..., 0] = False
-        allowed.scatter_(
-            dim=-1,
-            index=sorted_allowed_indices,
-            src=sorted_allowed.masked_fill(remove_mask, float("-inf")),
-        )
+        kept_values = kept_values.masked_fill(remove_mask, float("-inf"))
 
-    return allowed
+    filtered = torch.full_like(scaled, float("-inf"))
+    filtered.scatter_(dim=-1, index=kept_indices, src=kept_values)
+    return filtered
 
 
 def nonempty_lines(text: str) -> List[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def should_stop_generation(candidate_text: str, token_text: str) -> bool:
+def should_stop_generation(candidate_text: str, token_text: str) -> Tuple[bool, str]:
     lines = nonempty_lines(candidate_text)
     if len(lines) < NEWLINE_STOP:
-        return False
+        return False, "continue"
 
-    # Stop when the model tries to start a fourth non-empty line. The caller does not append that token.
     if len(lines) > NEWLINE_STOP:
-        return True
+        return True, "started_extra_line"
 
     last_line = lines[-1] if lines else ""
     if len(last_line.replace(" ", "")) < MIN_LAST_LINE_CHARS:
-        return False
+        return False, "continue"
 
-    # Prefer natural line boundary, but also stop before overly long third line on CPU Spaces.
     if "\n" in token_text:
-        return True
-    if len(last_line) >= 22:
-        return True
+        return True, "third_line_newline"
+    if len(last_line) >= THIRD_LINE_MAX_CHARS:
+        return True, "third_line_max_chars"
     if last_line.endswith((".", "?", "!", "…")) and len(last_line) >= 6:
-        return True
-    return False
+        return True, "third_line_terminal_punctuation"
+    return False, "continue"
 
 
 def sample_next_token(filtered_logits: torch.Tensor, raw_logits: torch.Tensor) -> torch.Tensor:
@@ -319,7 +335,7 @@ def sample_next_token(filtered_logits: torch.Tensor, raw_logits: torch.Tensor) -
 
 
 @torch.inference_mode()
-def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> str:
+def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     prompt = build_prompt(experience)
     encoded = TOKENIZER(prompt, return_tensors="pt")
     input_ids = encoded["input_ids"].to(DEVICE)
@@ -328,8 +344,13 @@ def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> st
         attention_mask = attention_mask.to(DEVICE)
 
     generated_ids: List[int] = []
+    generated_text_parts: List[str] = []
+    generated_text = ""
     past_key_values = None
     next_input_ids = input_ids
+    stopped_reason = "max_new_tokens"
+    decode_steps = 0
+    loop_started = time.time()
 
     for step in range(int(params["max_new_tokens"])):
         if past_key_values is None:
@@ -342,27 +363,45 @@ def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> st
         filtered_logits = apply_custom_logits_filter(raw_logits, params)
         next_token = sample_next_token(filtered_logits, raw_logits).to(DEVICE)
         token_id = int(next_token.item())
+        decode_steps = step + 1
 
         if token_id == TOKENIZER.eos_token_id:
+            stopped_reason = "eos_token"
             break
 
         token_text = TOKENIZER.decode([token_id], skip_special_tokens=False)
-        candidate_ids = generated_ids + [token_id]
-        candidate_text = TOKENIZER.decode(candidate_ids, skip_special_tokens=True)
+        candidate_text = generated_text + token_text
 
         if any(stop in candidate_text for stop in STOP_STRINGS):
+            stopped_reason = "stop_string"
             break
 
-        if should_stop_generation(candidate_text, token_text):
+        should_stop, reason = should_stop_generation(candidate_text, token_text)
+        if should_stop:
             # If the token only completes the third line, keep it. If it starts a fourth line, do not keep it.
             if len(nonempty_lines(candidate_text)) <= NEWLINE_STOP:
                 generated_ids.append(token_id)
+                generated_text_parts.append(token_text)
+                generated_text = candidate_text
+            stopped_reason = reason
             break
 
         generated_ids.append(token_id)
+        generated_text_parts.append(token_text)
+        generated_text = candidate_text
         next_input_ids = next_token
 
-    return TOKENIZER.decode(generated_ids, skip_special_tokens=True)
+    generation_seconds = max(time.time() - loop_started, 1e-6)
+    final_text = TOKENIZER.decode(generated_ids, skip_special_tokens=True)
+    stats = {
+        "prompt_tokens": int(input_ids.shape[-1]),
+        "generated_tokens": len(generated_ids),
+        "decode_steps": decode_steps,
+        "generation_seconds": round(generation_seconds, 3),
+        "tokens_per_second": round(len(generated_ids) / generation_seconds, 3),
+        "stopped_reason": stopped_reason,
+    }
+    return final_text, stats
 
 
 def clean_generated_text(text: str) -> str:
@@ -428,10 +467,8 @@ def has_list_like_output(lines: List[str]) -> bool:
 def has_suspicious_random_word(poem: str) -> bool:
     if any(word in poem for word in SUSPICIOUS_WORDS):
         return True
-    # Odd non-Korean fragments inside mostly Korean output.
     if re.search(r"[A-Za-z]{6,}", poem) and "AI" not in poem:
         return True
-    # Jamo fragments usually mean token-level collapse or typo-like output.
     if re.search(r"[ㄱ-ㅎㅏ-ㅣ]{2,}", poem):
         return True
     return False
@@ -577,6 +614,9 @@ def root() -> Dict[str, Any]:
         "show_invalid_outputs": SHOW_INVALID_OUTPUTS,
         "newline_stop": NEWLINE_STOP,
         "max_new_tokens": MAX_NEW_TOKENS,
+        "prompt_style": PROMPT_STYLE,
+        "use_kv_cache": True,
+        "torch_num_threads": CPU_NUM_THREADS if not torch.cuda.is_available() else "cuda",
     }
 
 
@@ -587,7 +627,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
     experience = (req.experience or "").strip()
     params = build_generation_params(req.languageJump)
 
-    raw_output = generate_with_custom_decoding(experience, params)
+    raw_output, generation_stats = generate_with_custom_decoding(experience, params)
     poem = clean_generated_text(raw_output)
     validation_status, validation_reason, diagnostics = validate_poem(raw_output, poem, experience)
     elapsed_seconds = round(time.time() - started, 3)
@@ -605,12 +645,15 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             "line_count": diagnostics.get("line_count"),
             "experience_keywords": diagnostics.get("experience_keywords", []),
             "matched_keywords": diagnostics.get("matched_keywords", []),
+            **generation_stats,
         }
     )
 
     print(
         f"[generate][{request_id}] status={validation_status} reason={validation_reason} "
-        f"jump={params['language_jump']} elapsed={elapsed_seconds}s",
+        f"jump={params['language_jump']} tokens={params.get('generated_tokens')} "
+        f"tok_s={params.get('tokens_per_second')} stopped={params.get('stopped_reason')} "
+        f"elapsed={elapsed_seconds}s",
         flush=True,
     )
 
