@@ -1,11 +1,14 @@
+import json
 import os
 import re
 import time
 import uuid
+from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Tuple
 
 import torch
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -15,7 +18,7 @@ try:
 except Exception:  # peft is only required when USE_ADAPTER=true or fallback is used.
     PeftModel = None
 
-APP_VERSION = "finetuned-space-backend-2026-07-03-stage14-v1"
+APP_VERSION = "finetuned-space-backend-2026-07-03-stage15-logs-v1"
 
 BASE_MODEL_ID = os.getenv("BASE_MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
 MODEL_ID = os.getenv("MODEL_ID", "z-unghyun/poem-generator-merged")
@@ -31,6 +34,14 @@ MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "52"))
 MIN_LAST_LINE_CHARS = int(os.getenv("MIN_LAST_LINE_CHARS", "4"))
 THIRD_LINE_MAX_CHARS = int(os.getenv("THIRD_LINE_MAX_CHARS", "22"))
 CPU_NUM_THREADS = int(os.getenv("TORCH_NUM_THREADS", "2"))
+
+ENABLE_EXPERIMENT_LOGS = os.getenv("ENABLE_EXPERIMENT_LOGS", "true").lower() in {"1", "true", "yes", "y"}
+LOG_EXPERIENCE = os.getenv("LOG_EXPERIENCE", "true").lower() in {"1", "true", "yes", "y"}
+LOG_POEM = os.getenv("LOG_POEM", "true").lower() in {"1", "true", "yes", "y"}
+EXPERIMENT_LOG_PATH = os.getenv("EXPERIMENT_LOG_PATH", "/tmp/poem-generator/logs.jsonl")
+EXPOSE_EXPERIMENT_LOGS = os.getenv("EXPOSE_EXPERIMENT_LOGS", "false").lower() in {"1", "true", "yes", "y"}
+LOG_READ_TOKEN = os.getenv("LOG_READ_TOKEN", "").strip()
+LOG_MAX_READ_LINES = int(os.getenv("LOG_MAX_READ_LINES", "500"))
 
 SYSTEM_PROMPT = "너는 경험을 3줄 한국어 시로 바꾸는 시 생성 모델이다. 설명 없이 시만 쓴다."
 SHORT_PROMPT_TEMPLATE = "경험을 3줄 시로.\n경험: {experience}\n시:\n"
@@ -208,6 +219,10 @@ def clamp_int(value: int, low: int = 0, high: int = 100) -> int:
     return max(low, min(high, int(value)))
 
 
+def utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def build_generation_params(language_jump: int) -> Dict[str, Any]:
     jump = clamp_int(language_jump)
 
@@ -262,17 +277,10 @@ def build_prompt(experience: str) -> str:
             return TOKENIZER.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         return f"system: {SYSTEM_PROMPT}\nuser: 경험: {clean_experience}\nassistant:\n"
 
-    # Short prompt for CPU Space inference. The model has already been fine-tuned on experience -> 3-line poem.
     return SHORT_PROMPT_TEMPLATE.format(experience=clean_experience)
 
 
 def apply_custom_logits_filter(logits: torch.Tensor, params: Dict[str, Any]) -> torch.Tensor:
-    """Apply temperature, anti-greedy removal, top-k/band, and top-p using partial top-k.
-
-    Stage 10 sorted the full vocabulary twice per token. On CPU this is expensive.
-    This version only keeps remove_top_n + topk + band_size candidates, then applies top-p
-    inside that reduced candidate band while preserving the same experimental structure.
-    """
     scaled = logits.float() / max(float(params["temperature"]), 1e-5)
     vocab_size = scaled.shape[-1]
 
@@ -344,7 +352,6 @@ def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> Tu
         attention_mask = attention_mask.to(DEVICE)
 
     generated_ids: List[int] = []
-    generated_text_parts: List[str] = []
     generated_text = ""
     past_key_values = None
     next_input_ids = input_ids
@@ -378,16 +385,13 @@ def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> Tu
 
         should_stop, reason = should_stop_generation(candidate_text, token_text)
         if should_stop:
-            # If the token only completes the third line, keep it. If it starts a fourth line, do not keep it.
             if len(nonempty_lines(candidate_text)) <= NEWLINE_STOP:
                 generated_ids.append(token_id)
-                generated_text_parts.append(token_text)
                 generated_text = candidate_text
             stopped_reason = reason
             break
 
         generated_ids.append(token_id)
-        generated_text_parts.append(token_text)
         generated_text = candidate_text
         next_input_ids = next_token
 
@@ -405,7 +409,6 @@ def generate_with_custom_decoding(experience: str, params: Dict[str, Any]) -> Tu
 
 
 def clean_generated_text(text: str) -> str:
-    # Do not rewrite, template, or fallback. Only remove transport/special-token residue.
     cleaned = text or ""
     for stop in STOP_STRINGS:
         cleaned = cleaned.replace(stop, "")
@@ -599,6 +602,93 @@ def validate_poem(raw_output: str, poem: str, experience: str) -> Tuple[str, str
     return "valid", "ok", diagnostics
 
 
+def build_experiment_log_record(
+    *,
+    timestamp: str,
+    request_id: str,
+    experience: str,
+    poem: str,
+    params: Dict[str, Any],
+    validation_status: str,
+    validation_reason: str,
+) -> Dict[str, Any]:
+    return {
+        "timestamp": timestamp,
+        "request_id": request_id,
+        "experience": experience if LOG_EXPERIENCE else "[redacted]",
+        "poem": poem if LOG_POEM else "[redacted]",
+        "languageJump": params.get("language_jump"),
+        "validation_status": validation_status,
+        "validation_reason": validation_reason,
+        "strategy": params.get("strategy"),
+        "temperature": params.get("temperature"),
+        "top_p": params.get("top_p"),
+        "topk": params.get("topk"),
+        "remove_top_n": params.get("remove_top_n"),
+        "elapsed_seconds": params.get("elapsed_seconds"),
+        "line_count": params.get("line_count"),
+        "model_load_mode": params.get("model_load_mode"),
+        "model": params.get("model"),
+        "app_version": params.get("app_version"),
+    }
+
+
+def append_experiment_log(record: Dict[str, Any]) -> None:
+    """Append one generation result to JSONL and print a minimal backend log line.
+
+    This is intended for development/debug logging. On free Spaces the default path is
+    ephemeral, so logs can disappear after restart/rebuild unless a persistent volume is used.
+    """
+    if not ENABLE_EXPERIMENT_LOGS:
+        return
+
+    safe_summary = {
+        "timestamp": record.get("timestamp"),
+        "request_id": record.get("request_id"),
+        "languageJump": record.get("languageJump"),
+        "validation_status": record.get("validation_status"),
+        "validation_reason": record.get("validation_reason"),
+        "elapsed_seconds": record.get("elapsed_seconds"),
+    }
+    print(f"[experiment_log] {json.dumps(safe_summary, ensure_ascii=False)}", flush=True)
+
+    try:
+        log_dir = os.path.dirname(EXPERIMENT_LOG_PATH)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        with open(EXPERIMENT_LOG_PATH, "a", encoding="utf-8") as fp:
+            fp.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        print(f"[experiment_log_error] {repr(exc)}", flush=True)
+
+
+def require_log_access(token: str) -> None:
+    if not EXPOSE_EXPERIMENT_LOGS:
+        raise HTTPException(status_code=404, detail="experiment log endpoints are disabled")
+    if not LOG_READ_TOKEN:
+        raise HTTPException(status_code=403, detail="LOG_READ_TOKEN is not configured")
+    if token != LOG_READ_TOKEN:
+        raise HTTPException(status_code=403, detail="invalid log token")
+
+
+def read_recent_log_records(limit: int = 200) -> List[Dict[str, Any]]:
+    if not os.path.exists(EXPERIMENT_LOG_PATH):
+        return []
+    bounded_limit = max(1, min(int(limit), LOG_MAX_READ_LINES))
+    records: List[Dict[str, Any]] = []
+    with open(EXPERIMENT_LOG_PATH, "r", encoding="utf-8") as fp:
+        lines = fp.readlines()[-bounded_limit:]
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
 @app.get("/")
 def root() -> Dict[str, Any]:
     return {
@@ -617,12 +707,45 @@ def root() -> Dict[str, Any]:
         "prompt_style": PROMPT_STYLE,
         "use_kv_cache": True,
         "torch_num_threads": CPU_NUM_THREADS if not torch.cuda.is_available() else "cuda",
+        "experiment_logs_enabled": ENABLE_EXPERIMENT_LOGS,
+        "experiment_log_path": EXPERIMENT_LOG_PATH,
+        "experiment_log_endpoints_exposed": EXPOSE_EXPERIMENT_LOGS,
+        "log_experience": LOG_EXPERIENCE,
+        "log_poem": LOG_POEM,
     }
+
+
+@app.get("/logs/summary")
+def logs_summary(token: str = Query(default=""), limit: int = Query(default=200, ge=1, le=500)) -> Dict[str, Any]:
+    require_log_access(token)
+    records = read_recent_log_records(limit=limit)
+    reason_counts = Counter(str(record.get("validation_reason", "unknown")) for record in records)
+    status_counts = Counter(str(record.get("validation_status", "unknown")) for record in records)
+    jump_counts = Counter(str(record.get("languageJump", "unknown")) for record in records)
+    return {
+        "app_version": APP_VERSION,
+        "log_path": EXPERIMENT_LOG_PATH,
+        "records_read": len(records),
+        "validation_reason_counts": dict(reason_counts),
+        "validation_status_counts": dict(status_counts),
+        "languageJump_counts": dict(jump_counts),
+        "latest_request_ids": [record.get("request_id") for record in records[-20:]],
+    }
+
+
+@app.get("/logs/{request_id}")
+def log_by_request_id(request_id: str, token: str = Query(default="")) -> Dict[str, Any]:
+    require_log_access(token)
+    for record in reversed(read_recent_log_records(limit=LOG_MAX_READ_LINES)):
+        if record.get("request_id") == request_id:
+            return {"found": True, "record": record}
+    return {"found": False, "request_id": request_id}
 
 
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest) -> GenerateResponse:
     started = time.time()
+    timestamp = utc_timestamp()
     request_id = str(uuid.uuid4())
     experience = (req.experience or "").strip()
     params = build_generation_params(req.languageJump)
@@ -635,6 +758,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
     params.update(
         {
             "app_version": APP_VERSION,
+            "timestamp": timestamp,
             "request_id": request_id,
             "elapsed_seconds": elapsed_seconds,
             "validation_status": validation_status,
@@ -648,6 +772,17 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             **generation_stats,
         }
     )
+
+    log_record = build_experiment_log_record(
+        timestamp=timestamp,
+        request_id=request_id,
+        experience=experience,
+        poem=poem,
+        params=params,
+        validation_status=validation_status,
+        validation_reason=validation_reason,
+    )
+    append_experiment_log(log_record)
 
     print(
         f"[generate][{request_id}] status={validation_status} reason={validation_reason} "
